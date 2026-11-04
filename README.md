@@ -2,6 +2,26 @@
 
 An offline Android Java app that uses accelerometer and gyroscope measurements, a Kalman-fused attitude estimate, a 27-feature double-chop detector, and a tiny 27→18→1 neural network to toggle the camera LED.
 
+
+## This special project includes your recovered v1 training
+
+This copy includes `app/src/main/assets/choptorch_model.json` (your original trained weights)
+and `app/trainingAssets/choptorch_seed_examples.json` (your 19 v1 gesture examples).
+On the **first launch of a new v2 development install**, it restores the 7 chop and 12
+other-movement labels into the v2 app's own private storage, and uses the v1-trained
+model immediately, so future false-positive reports can retrain from your real samples.
+It will never replace an existing v2 training dataset (the seed is only applied if no
+saved dataset exists). If you already used v2, the existing data wins.
+
+In `-Pshipping=true` the development seed asset is **excluded** from the APK and the
+training interface stays disabled; the weights file remains bundled as the pretrained
+model. Note: the original motion examples ARE included in the project source and therefore
+would be visible if you upload this project to a **public** GitHub repository. Use a
+private repository if you do not want to publish those examples.
+
+If you need to replace this model later, use the new v2 export button and update
+`app/src/main/assets/choptorch_model.json` with the exported version.
+
 ## What's new in v2
 
 1. **Continue listening in the background / with screen locked:** tapping **Start background detection** starts a visible foreground service. The service, not the Activity, owns the IMU listener, classifier, and torch. It continues after you switch apps or lock the phone, subject to Android power-management restrictions. The notification has a **Stop** action; **Stop background detection** in the app does the same. Detection does not begin automatically on boot or after a system kill. A `PARTIAL_WAKE_LOCK` is held ONLY while listening and released on Stop/service destruction; this can drain the battery.

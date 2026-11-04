@@ -10,6 +10,9 @@ if (shipping && !file('src/main/assets/choptorch_model.json').isFile()) {
 
 android {
     buildFeatures { buildConfig true }
+    if (!shipping) {
+        sourceSets.main.assets.srcDirs += ['trainingAssets']
+    }
     namespace 'com.example.choptorch'
     compileSdk 36
 
