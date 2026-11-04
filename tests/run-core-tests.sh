@@ -6,5 +6,6 @@ trap 'rm -rf "$OUT"' EXIT HUP INT TERM
 SRC="$ROOT/app/src/main/java/com/example/choptorch"
 javac -d "$OUT" "$SRC/MotionSample.java" "$SRC/AngleKalman.java" \
   "$SRC/MotionProcessor.java" "$SRC/GestureFeatures.java" "$SRC/TinyNeuralNet.java" \
+  "$SRC/GestureDetector.java" \
   "$ROOT/tests/CoreSmokeTest.java"
 java -cp "$OUT" CoreSmokeTest

@@ -3,14 +3,16 @@ package com.example.choptorch;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,51 +25,57 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.util.ArrayDeque;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Single-activity, two-page offline gesture-training flashlight application. */
+/** Home, feedback, and optional personalized training page. Background sensing runs in a Service. */
 public final class MainActivity extends Activity implements SensorEventListener {
     private static final int CAMERA_REQUEST = 31;
-    private static final long WINDOW_MS = 1900;
+    private static final int EXPORT_REQUEST = 32;
+    private static final int NOTIFICATION_REQUEST = 33;
+    private static final long WINDOW_MS = GestureDetector.WINDOW_MS;
     private static final int BG = 0xFF0A1220;
     private static final int CARD = 0xFF142235;
     private static final int MINT = 0xFF66E0C7;
     private static final int WHITE = 0xFFF0F6FC;
     private static final int MUTED = 0xFFACBCCB;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService trainingWorker = Executors.newSingleThreadExecutor();
-    private final MotionProcessor motion = new MotionProcessor();
-    private final ArrayDeque<MotionSample> history = new ArrayDeque<>();
-
+    private final MotionProcessor recordingMotion = new MotionProcessor();
     private SensorManager sensorManager;
     private Sensor accelerometer, gyroscope;
     private GestureStore store;
     private TorchController torch;
-    private boolean onTrainingPage, listening, preparing, recording, training;
-    private boolean sensorsReady, sensorRegistered;
-    private int permissionAction; // 1 = manual torch, 2 = start listening
-    private double latestConfidence;
-    private long lastPredictionAt, lastTriggeredAt, lastUiRefresh;
-    private int consecutiveHits;
+    private boolean onTrainingPage, preparing, recording, training, resumed, sensorRegistered;
+    private boolean sensorsReady;
+    private int permissionAction; // 1 manual torch; 2 background detection
     private ArrayList<MotionSample> recordingSamples;
     private GestureFeatures.Result pendingResult;
     private Runnable prepareTask, finishTask;
 
     private LinearLayout page;
-    private TextView statusText, countText, hintText, torchText, scoreText;
-    private Button listenButton, captureButton, trainButton;
+    private TextView statusText, countText, hintText, torchText, scoreText, feedbackText;
+    private Button listenButton, captureButton, trainButton, falsePositiveButton;
     private Button positiveButton, negativeButton, discardButton;
+    private final Runnable refresh = new Runnable() {
+        @Override public void run() {
+            if (!resumed) return;
+            updateLabels();
+            handler.postDelayed(this, 650);
+        }
+    };
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        store = new GestureStore(this);
+        store = GestureStore.shared(this);
         torch = new TorchController(this, on -> {
             if (torchText != null) torchText.setText(on ? "FLASHLIGHT ON" : "FLASHLIGHT OFF");
         });
@@ -80,24 +88,21 @@ public final class MainActivity extends Activity implements SensorEventListener 
 
     @Override protected void onResume() {
         super.onResume();
-        motion.reset();
-        history.clear();
-        if (sensorsReady) {
-            boolean acc = sensorManager.registerListener(this, accelerometer, 20000);
-            boolean gyr = sensorManager.registerListener(this, gyroscope, 20000);
-            sensorRegistered = acc && gyr;
-            if (!sensorRegistered) sensorManager.unregisterListener(this);
+        resumed = true;
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            try { torch.initializeAfterPermission(); } catch (Exception ignored) { }
         }
-        updateLabels();
+        syncTrainingSensors();
+        handler.removeCallbacks(refresh);
+        handler.post(refresh);
     }
 
     @Override protected void onPause() {
+        resumed = false;
+        handler.removeCallbacks(refresh);
         cancelRecording();
-        listening = false; // no claims of background/locked-screen monitoring
-        sensorManager.unregisterListener(this);
-        sensorRegistered = false;
-        consecutiveHits = 0;
-        updateLabels();
+        unregisterTrainingSensors();
+        // Intentionally DO NOT stop the foreground service. It owns background sensors.
         super.onPause();
     }
 
@@ -109,110 +114,102 @@ public final class MainActivity extends Activity implements SensorEventListener 
     @Override protected void onDestroy() {
         cancelRecording();
         torch.release();
-        trainingWorker.shutdownNow();
+        trainingWorker.shutdown();
         super.onDestroy();
     }
 
+    private void syncTrainingSensors() {
+        if (!resumed || !onTrainingPage || !BuildConfig.ENABLE_TRAINING || !sensorsReady || sensorRegistered) return;
+        recordingMotion.reset();
+        boolean acc = sensorManager.registerListener(this, accelerometer, 20000);
+        boolean gyro = sensorManager.registerListener(this, gyroscope, 20000);
+        sensorRegistered = acc && gyro;
+        if (!sensorRegistered) sensorManager.unregisterListener(this);
+    }
+
+    private void unregisterTrainingSensors() {
+        if (sensorRegistered) sensorManager.unregisterListener(this);
+        sensorRegistered = false;
+    }
+
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) { }
-
     @Override public void onSensorChanged(SensorEvent event) {
+        if (!sensorRegistered || !recording) return;
         if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
-            motion.onGyroscope(event.values[0], event.values[1], event.values[2]);
-            return;
-        }
-        if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
-        MotionSample sample = motion.onAccelerometer(event.timestamp,
-                event.values[0], event.values[1], event.values[2]);
-        history.addLast(sample);
-        while (!history.isEmpty() && sample.timeMs - history.peekFirst().timeMs > WINDOW_MS + 160) {
-            history.removeFirst();
-        }
-        if (recording && recordingSamples != null) recordingSamples.add(sample);
-
-        if (listening && !recording && !preparing && store.isModelCurrent()
-                && sample.timeMs - lastPredictionAt >= 160) {
-            lastPredictionAt = sample.timeMs;
-            ArrayList<MotionSample> window = new ArrayList<>();
-            for (MotionSample s : history) {
-                if (s.timeMs >= sample.timeMs - WINDOW_MS) window.add(s);
-            }
-            if (window.size() > 35 && sample.timeMs - window.get(0).timeMs > 1550) {
-                GestureFeatures.Result features = GestureFeatures.extract(window);
-                TinyNeuralNet model = store.getModel();
-                if (features != null && model != null) {
-                    latestConfidence = model.probability(features.values);
-                    boolean pass = features.hasDoubleChopShape && latestConfidence >= 0.82;
-                    consecutiveHits = pass ? consecutiveHits + 1 : 0;
-                    if (consecutiveHits >= 2 && sample.timeMs - lastTriggeredAt >= 3000) {
-                        consecutiveHits = 0;
-                        lastTriggeredAt = sample.timeMs;
-                        triggerTorch();
-                    }
-                }
-            }
-        }
-        if (sample.timeMs - lastUiRefresh > 500) {
-            lastUiRefresh = sample.timeMs;
-            updateLabels();
+            recordingMotion.onGyroscope(event.values[0], event.values[1], event.values[2]);
+        } else if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER && recordingSamples != null) {
+            recordingSamples.add(recordingMotion.onAccelerometer(event.timestamp,
+                    event.values[0], event.values[1], event.values[2]));
         }
     }
 
     private void showHome() {
         cancelRecording();
+        unregisterTrainingSensors();
         pendingResult = null;
         onTrainingPage = false;
         page = freshPage();
-        heading("ChopTorch", "A double chop. A little light.");
+        heading("ChopTorch", "Two chops. One flashlight.");
 
         LinearLayout lightCard = card();
-        torchText = text("FLASHLIGHT OFF", 16, MINT, true);
+        lightCard.addView(text("FLASHLIGHT", 12, MINT, true));
+        torchText = spacedText("FLASHLIGHT OFF", 18, WHITE, 8);
         lightCard.addView(torchText);
-        lightCard.addView(spacedText("Two quick chopping motions turn the torch on or off.", 16, WHITE, 12));
-        Button manualButton = button("Toggle flashlight manually", false, () -> askForCamera(1));
-        lightCard.addView(manualButton);
+        lightCard.addView(spacedText("Quickly chop your phone twice to toggle the torch.", 15, WHITE, 8));
+        lightCard.addView(button("Toggle flashlight manually", false, () -> askForCamera(1)));
 
         LinearLayout detectionCard = card();
-        detectionCard.addView(text("GESTURE DETECTOR", 12, MINT, true));
+        detectionCard.addView(text("BACKGROUND GESTURE DETECTOR", 12, MINT, true));
         statusText = spacedText("", 18, WHITE, 12);
         detectionCard.addView(statusText);
         scoreText = spacedText("", 14, MUTED, 8);
         detectionCard.addView(scoreText);
-        listenButton = button("Start listening", true, this::changeListening);
+        listenButton = button("Start background detection", true, this::changeListening);
         detectionCard.addView(listenButton);
-        detectionCard.addView(spacedText("Monitoring works only while this app is visible. It stops when you leave or lock the screen.", 13, MUTED, 12));
+        detectionCard.addView(spacedText("Works while you use other apps or lock the screen, when Android permits. A persistent notification lets you stop it. Continuous monitoring uses battery.", 13, MUTED, 12));
 
-        LinearLayout trainCard = card();
-        trainCard.addView(text("PERSONALIZE", 12, MINT, true));
-        countText = spacedText("", 16, WHITE, 8);
-        trainCard.addView(countText);
-        trainCard.addView(spacedText("Record real examples and train the neural network on this device.", 14, MUTED, 8));
-        trainCard.addView(button("Open training page", false, () -> {
-            listening = false;
-            showTraining();
-        }));
-        hintText = spacedText("No data leaves your device.", 13, MUTED, 14);
-        page.addView(hintText);
+        if (BuildConfig.ENABLE_TRAINING) {
+            LinearLayout feedbackCard = card();
+            feedbackCard.addView(text("CORRECT A FALSE POSITIVE", 12, MINT, true));
+            feedbackCard.addView(spacedText("If a double-chop detection accidentally switched the flashlight ON, flag it within 10 minutes. The exact triggering IMU features will be labeled NOT chop, and the model will retrain automatically.", 14, WHITE, 8));
+            falsePositiveButton = button("Flag last ON as false positive", false, this::flagFalsePositive);
+            feedbackCard.addView(falsePositiveButton);
+            feedbackText = spacedText("", 13, MUTED, 10);
+            feedbackCard.addView(feedbackText);
+
+            LinearLayout trainCard = card();
+            trainCard.addView(text("PERSONALIZE AND EXPORT", 12, MINT, true));
+            countText = spacedText("", 16, WHITE, 8);
+            trainCard.addView(countText);
+            trainCard.addView(button("Open training page", false, this::showTraining));
+            trainCard.addView(button("Export trained NN weights (JSON)", false, this::exportModel));
+            trainCard.addView(spacedText("Exported JSON can be bundled as app/src/main/assets/choptorch_model.json for a shipping build.", 13, MUTED, 10));
+        }
         updateLabels();
     }
 
     private void showTraining() {
+        if (!BuildConfig.ENABLE_TRAINING) return;
+        if (GestureDetectionService.isRunning()) {
+            startService(GestureDetectionService.command(this, GestureDetectionService.ACTION_STOP));
+        }
         onTrainingPage = true;
-        listening = false;
         page = freshPage();
         page.addView(button("‹  Back to flashlight", false, this::showHome));
-        heading("Teach the gesture", "Capture it. Confirm it. Train it.");
+        heading("Teach the gesture", "Capture. Confirm. Train. Export.");
+        syncTrainingSensors();
 
         LinearLayout explanation = card();
-        explanation.addView(text("HOW TO RECORD", 12, MINT, true));
-        explanation.addView(spacedText("Hold your PHONE firmly, tap Record, then make two quick downward chopping motions when you see “MOVE NOW”.", 16, WHITE, 8));
-        explanation.addView(spacedText("Also record ordinary movements (walking, lifting, shaking once) and label those NOT double chop. Use no actual knife.", 14, MUTED, 12));
+        explanation.addView(text("RECORD EXAMPLES", 12, MINT, true));
+        explanation.addView(spacedText("Hold your PHONE firmly, tap Record, then make two quick downward chopping movements when you see MOVE NOW.", 16, WHITE, 8));
+        explanation.addView(spacedText("Also record walking, pocket movements, shaking and single chops; label these NOT double chop. Do not use an actual knife.", 14, MUTED, 12));
         captureButton = button("Record a 2-second movement", true, this::beginRecording);
         explanation.addView(captureButton);
         statusText = spacedText("Ready to record", 15, MINT, 12);
         explanation.addView(statusText);
 
         LinearLayout confirm = card();
-        confirm.addView(text("CONFIRM THE MOVEMENT", 12, MINT, true));
+        confirm.addView(text("CONFIRM MOVEMENT", 12, MINT, true));
         hintText = spacedText("After recording, choose the correct label.", 14, MUTED, 10);
         confirm.addView(hintText);
         positiveButton = button("✓ Yes — two chops", true, () -> confirmRecording(true));
@@ -223,31 +220,32 @@ public final class MainActivity extends Activity implements SensorEventListener 
         confirm.addView(discardButton);
 
         LinearLayout trainingCard = card();
-        trainingCard.addView(text("ON-DEVICE TRAINING", 12, MINT, true));
+        trainingCard.addView(text("TRAIN AND EXPORT", 12, MINT, true));
         countText = spacedText("", 17, WHITE, 10);
         trainingCard.addView(countText);
-        trainingCard.addView(spacedText("Minimum: 6 confirmed double chops + 6 non-chops. Aim for 15–25 of each for better reliability.", 14, MUTED, 8));
+        trainingCard.addView(spacedText("Minimum 6 positive and 6 negative examples. Aim for 20+ of each plus false-positive feedback.", 14, MUTED, 8));
         trainButton = button("Train neural network", true, this::beginTraining);
         trainingCard.addView(trainButton);
+        trainingCard.addView(button("Export weights as JSON", false, this::exportModel));
         trainingCard.addView(button("Erase all examples and model", false, this::confirmErase));
-        trainingCard.addView(spacedText("After training, return to the flashlight page and tap Start listening. You can always add examples and retrain.", 14, MUTED, 12));
+        trainingCard.addView(spacedText("To ship without a training page: put the exported JSON into app/src/main/assets/choptorch_model.json and build with -Pshipping=true.", 14, MUTED, 12));
         updateLabels();
     }
 
     private void beginRecording() {
         if (!sensorRegistered || training || preparing || recording) {
-            showToast(sensorRegistered ? "Finish the current task first." : "This phone needs accelerometer and gyroscope sensors.");
+            showToast(sensorRegistered ? "Finish the current task first." : "Accelerometer and gyroscope required.");
             return;
         }
         pendingResult = null;
         preparing = true;
-        listening = false;
         updateLabels();
         statusText.setText("GET READY… hold the phone firmly");
         prepareTask = () -> {
             if (!preparing) return;
             preparing = false;
             recording = true;
+            recordingMotion.reset();
             recordingSamples = new ArrayList<>();
             statusText.setText("MOVE NOW — perform the movement!");
             updateLabels();
@@ -263,12 +261,11 @@ public final class MainActivity extends Activity implements SensorEventListener 
         List<MotionSample> samples = recordingSamples;
         recordingSamples = null;
         pendingResult = GestureFeatures.extract(samples);
-        if (pendingResult == null || samples.get(samples.size() - 1).timeMs - samples.get(0).timeMs < 1300) {
+        if (pendingResult == null || samples.isEmpty() ||
+                samples.get(samples.size() - 1).timeMs - samples.get(0).timeMs < 1300) {
             pendingResult = null;
-            statusText.setText("Too few sensor readings. Try recording again.");
-        } else {
-            statusText.setText("Recorded. Please confirm what you did.");
-        }
+            statusText.setText("Too few sensor readings. Try again.");
+        } else statusText.setText("Recorded! Please confirm what you did.");
         updateLabels();
     }
 
@@ -295,67 +292,99 @@ public final class MainActivity extends Activity implements SensorEventListener 
     }
 
     private void beginTraining() {
-        if (training) return;
+        if (!BuildConfig.ENABLE_TRAINING || training) return;
         List<TinyNeuralNet.Example> examples = store.getExamples();
-        int pos = store.count(true), neg = store.count(false);
-        if (pos < 6 || neg < 6) {
+        if (store.count(true) < 6 || store.count(false) < 6) {
             showToast("Record at least 6 examples of each class.");
             return;
         }
         training = true;
-        statusText.setText("Training neural network…");
+        if (onTrainingPage) statusText.setText("Training neural network…");
         updateLabels();
         trainingWorker.execute(() -> {
+            String message;
             try {
                 TinyNeuralNet net = new TinyNeuralNet();
                 TinyNeuralNet.Metrics metrics = net.train(examples);
-                handler.post(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    store.saveModel(net, examples.size());
-                    training = false;
-                    if (onTrainingPage) statusText.setText(String.format(Locale.US,
-                            "Trained! %.0f%% fit on your saved samples. Test with new movements.", metrics.accuracy * 100));
-                    updateLabels();
-                });
-            } catch (Exception error) {
-                handler.post(() -> {
-                    training = false;
-                    if (onTrainingPage) statusText.setText("Training failed: " + error.getMessage());
-                    updateLabels();
-                });
-            }
+                boolean saved = store.saveModel(net, examples.size());
+                message = saved ? String.format(Locale.US,
+                        "Trained! %.0f%% fit on saved examples. Now test on new movements.", metrics.accuracy * 100)
+                        : "Dataset changed. Train again.";
+            } catch (Exception failure) { message = "Training failed: " + failure.getMessage(); }
+            final String done = message;
+            handler.post(() -> {
+                training = false;
+                if (onTrainingPage && statusText != null) statusText.setText(done);
+                updateLabels();
+            });
         });
+    }
+
+    private void flagFalsePositive() {
+        if (!BuildConfig.ENABLE_TRAINING || !store.hasFeedbackCandidate()) {
+            showToast("No recent torch-ON detection to correct.");
+            return;
+        }
+        if (GestureDetectionService.isRunning()) {
+            startService(GestureDetectionService.command(this, GestureDetectionService.ACTION_FALSE_POSITIVE));
+        } else if (store.flagFalsePositive()) {
+            try {
+                torch.initializeAfterPermission();
+                torch.turnOff();
+            } catch (Exception ignored) { }
+            beginTraining(); // Reuses background worker; safe if user leaves app.
+        }
+        updateLabels();
+    }
+
+    private void exportModel() {
+        if (!BuildConfig.ENABLE_TRAINING || !store.isModelCurrent()) {
+            showToast("Train the network before exporting weights.");
+            return;
+        }
+        Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("application/json");
+        picker.putExtra(Intent.EXTRA_TITLE, "choptorch_model.json");
+        startActivityForResult(picker, EXPORT_REQUEST);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != EXPORT_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+            if (out == null) throw new IllegalStateException("Could not open destination");
+            out.write(store.exportModelJson().getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            showToast("Neural-network weights exported as JSON.");
+        } catch (Exception failure) { showToast("Export failed: " + failure.getMessage()); }
     }
 
     private void confirmErase() {
         if (training) return;
         new AlertDialog.Builder(this)
-                .setTitle("Erase your training data?")
-                .setMessage("Delete all recorded examples and the trained neural network from this phone?")
+                .setTitle("Erase training data?")
+                .setMessage("Delete all recorded examples and your trained neural network?")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Erase", (dialog, which) -> {
                     store.eraseAll();
                     pendingResult = null;
-                    listening = false;
-                    statusText.setText("Data erased. Record new gestures to start.");
+                    if (onTrainingPage) statusText.setText("Data erased. Record fresh examples.");
                     updateLabels();
                 }).show();
     }
 
     private void changeListening() {
-        if (listening) {
-            listening = false;
-            consecutiveHits = 0;
-            updateLabels();
+        if (GestureDetectionService.isRunning()) {
+            startService(GestureDetectionService.command(this, GestureDetectionService.ACTION_STOP));
+            handler.postDelayed(this::updateLabels, 250);
             return;
         }
-        if (!sensorRegistered) {
-            showToast("Accelerometer and gyroscope are required.");
-            return;
-        }
+        if (!sensorsReady) { showToast("Accelerometer and gyroscope are required."); return; }
         if (!store.isModelCurrent()) {
-            showToast("First record examples and train the model.");
-            showTraining();
+            showToast("A trained model is required.");
+            if (BuildConfig.ENABLE_TRAINING) showTraining();
             return;
         }
         askForCamera(2);
@@ -363,92 +392,76 @@ public final class MainActivity extends Activity implements SensorEventListener 
 
     private void askForCamera(int action) {
         permissionAction = action;
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQUEST);
-        } else {
-            completeCameraAction(action);
-        }
+        else completeCameraAction(action);
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(requestCode, permissions, grants);
         if (requestCode != CAMERA_REQUEST) return;
-        if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) {
+        if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED)
             completeCameraAction(permissionAction);
-        } else {
-            showToast("Camera permission is required to control the flashlight.");
-        }
+        else showToast("Camera permission is needed for flashlight control.");
     }
 
     private void completeCameraAction(int action) {
         try {
             torch.initializeAfterPermission();
-            if (!torch.hasFlash()) {
-                showToast("No available camera flashlight on this phone.");
-                return;
-            }
-            if (action == 1) triggerTorch();
-            if (action == 2) {
-                listening = true;
-                consecutiveHits = 0;
-                lastTriggeredAt = 0;
-                latestConfidence = 0;
+            if (!torch.hasFlash()) { showToast("No camera flashlight found."); return; }
+            if (action == 1) {
+                torch.toggle();
+            } else if (action == 2) {
+                startForegroundService(GestureDetectionService.command(this, GestureDetectionService.ACTION_START));
+                if (Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
             }
             updateLabels();
-        } catch (Exception e) {
-            showToast("Cannot access torch: " + e.getMessage());
-        }
-    }
-
-    private void triggerTorch() {
-        try {
-            torch.toggle();
-            if (torchText != null) torchText.setText(torch.isOn() ? "FLASHLIGHT ON" : "FLASHLIGHT OFF");
-        } catch (Exception error) {
-            listening = false;
-            showToast("Flashlight unavailable: " + error.getMessage());
-        }
-        updateLabels();
+        } catch (Exception e) { showToast("Flashlight error: " + e.getMessage()); }
     }
 
     private void updateLabels() {
-        if (torchText != null && !onTrainingPage) torchText.setText(torch.isOn() ? "FLASHLIGHT ON" : "FLASHLIGHT OFF");
-        if (countText != null) {
-            countText.setText(String.format(Locale.US, "%d double chops  ·  %d other movements",
-                    store.count(true), store.count(false)));
-        }
+        if (torchText != null && !onTrainingPage)
+            torchText.setText(torch.isOn() ? "FLASHLIGHT ON" : "FLASHLIGHT OFF");
+        if (countText != null)
+            countText.setText(store.count(true) + " double chops  ·  " + store.count(false) + " other movements");
         if (!onTrainingPage) {
             if (statusText != null) {
                 statusText.setText(!sensorsReady ? "No accelerometer or gyroscope found"
-                        : !store.isModelCurrent() ? "Training needed before listening"
-                        : listening ? "Listening for two chops…" : "Detector paused");
+                        : !store.isModelCurrent() ? "Model missing or retraining…"
+                        : GestureDetectionService.isRunning() ? "Background monitoring active" : "Detector stopped");
             }
-            if (scoreText != null) scoreText.setText(store.isModelCurrent()
-                    ? String.format(Locale.US, "Live model score: %.0f%%  ·  needs 82%% and two motion peaks", latestConfidence * 100)
-                    : "No trained model yet. Create a personalized detector.");
+            if (scoreText != null) {
+                String error = GestureDetectionService.getError();
+                scoreText.setText(error.isEmpty()
+                        ? String.format(Locale.US, "Score %.0f%%  ·  threshold 82%% + 2 peaks",
+                        GestureDetectionService.getScore() * 100)
+                        : "Last error: " + error);
+            }
             if (listenButton != null) {
-                listenButton.setText(listening ? "Stop listening" : "Start listening");
-                listenButton.setEnabled(sensorsReady);
+                listenButton.setText(GestureDetectionService.isRunning() ? "Stop background detection" : "Start background detection");
+                listenButton.setEnabled(sensorsReady && store.isModelCurrent());
             }
+            if (falsePositiveButton != null) falsePositiveButton.setEnabled(store.hasFeedbackCandidate());
+            if (feedbackText != null) feedbackText.setText(store.getFeedbackMessage());
         } else {
             if (captureButton != null) captureButton.setEnabled(!training && !recording && !preparing && sensorRegistered);
             if (positiveButton != null) positiveButton.setEnabled(!training && pendingResult != null);
             if (negativeButton != null) negativeButton.setEnabled(!training && pendingResult != null);
             if (discardButton != null) discardButton.setEnabled(!training && pendingResult != null);
             if (trainButton != null) {
-                trainButton.setEnabled(!training && !recording && !preparing && store.count(true) >= 6 && store.count(false) >= 6);
+                trainButton.setEnabled(!training && !recording && !preparing
+                        && store.count(true) >= 6 && store.count(false) >= 6);
                 trainButton.setText(training ? "Training…" : "Train neural network");
             }
             if (hintText != null) {
                 if (pendingResult != null) {
                     hintText.setText(String.format(Locale.US,
-                            "Detected %d turning peaks · strongest gap %d ms · max rotation %.1f rad/s. Your confirmation is the training label.",
+                            "%d rotational peaks · gap %d ms · max rotation %.1f rad/s. Confirm the real movement.",
                             pendingResult.strongPeaks, pendingResult.peakGapMs, pendingResult.maxGyro));
-                } else {
-                    hintText.setText(store.isModelCurrent()
-                            ? "Model saved. You can record more, then retrain."
-                            : "After recording, choose the correct label.");
-                }
+                } else hintText.setText(store.isModelCurrent() ? "Model saved. Export or collect more examples."
+                        : "After recording, choose the correct label.");
             }
         }
     }
@@ -462,8 +475,8 @@ public final class MainActivity extends Activity implements SensorEventListener 
         content.setPadding(dp(20), dp(26), dp(20), dp(26));
         scroller.addView(content);
         setContentView(scroller);
-        statusText = countText = hintText = torchText = scoreText = null;
-        listenButton = captureButton = trainButton = null;
+        statusText = countText = hintText = torchText = scoreText = feedbackText = null;
+        listenButton = captureButton = trainButton = falsePositiveButton = null;
         positiveButton = negativeButton = discardButton = null;
         return content;
     }

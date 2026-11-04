@@ -2,16 +2,27 @@ plugins {
     id 'com.android.application'
 }
 
+// Production is intentionally opt-in. The pretrained weights asset is mandatory in shipping mode.
+def shipping = providers.gradleProperty('shipping').map { it.toBoolean() }.getOrElse(false)
+if (shipping && !file('src/main/assets/choptorch_model.json').isFile()) {
+    throw new GradleException('Shipping requires app/src/main/assets/choptorch_model.json (exported from the training app).')
+}
+
 android {
+    buildFeatures { buildConfig true }
     namespace 'com.example.choptorch'
     compileSdk 36
 
     defaultConfig {
         applicationId 'com.example.choptorch'
+        // A GitHub runner may generate a different debug signing key on every run.
+        // Keep the existing v1 install (and its examples) safe alongside v2 dev.
+        if (!shipping) applicationIdSuffix '.dev'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '2.0'
+        buildConfigField 'boolean', 'ENABLE_TRAINING', shipping ? 'false' : 'true'
     }
 
     compileOptions {
