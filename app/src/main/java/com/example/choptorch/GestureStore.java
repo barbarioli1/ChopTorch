@@ -56,7 +56,7 @@ public final class GestureStore {
         return output;
     }
 
-    private static JSONArray asJson(double[] doubles) {
+    private static JSONArray asJson(double[] doubles) throws JSONException {
         JSONArray a = new JSONArray();
         for (double v : doubles) a.put(v);
         return a;
