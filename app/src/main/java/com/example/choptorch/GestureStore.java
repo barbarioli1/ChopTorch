@@ -34,6 +34,36 @@ public final class GestureStore {
     private GestureStore(Context context) {
         preferences = context.getSharedPreferences("choptorch_private", Context.MODE_PRIVATE);
         if (BuildConfig.ENABLE_TRAINING) {
+            // Optional one-time migration seed for developers restoring their v1 data.
+            // Only applies to a fresh v2 development install; never overwrites saved data.
+            // In shipping mode this code is skipped AND the seed asset is not packaged.
+            if (!preferences.contains(KEY_EXAMPLES)) {
+                try (InputStream input = context.getAssets().open("choptorch_seed_examples.json")) {
+                    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[4096];
+                    int n;
+                    while ((n = input.read(buffer)) != -1) bytes.write(buffer, 0, n);
+                    JSONObject seed = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+                    if (seed.getInt("featureCount") != TinyNeuralNet.INPUT) {
+                        throw new JSONException("Wrong training feature version");
+                    }
+                    JSONArray samples = seed.getJSONArray("examples");
+                    List<TinyNeuralNet.Example> restored = new ArrayList<>();
+                    for (int i = 0; i < samples.length(); i++) {
+                        JSONObject sample = samples.getJSONObject(i);
+                        restored.add(new TinyNeuralNet.Example(
+                                toDoubles(sample.getJSONArray("x"), TinyNeuralNet.INPUT),
+                                sample.getBoolean("positive")));
+                    }
+                    if (restored.size() >= 12) {
+                        examples.clear();
+                        examples.addAll(restored);
+                        saveExamples();
+                    }
+                } catch (Exception missingOrInvalidSeed) {
+                    // Ordinary development projects have no seed; use manual training.
+                }
+            }
             try {
                 JSONArray array = new JSONArray(preferences.getString(KEY_EXAMPLES, "[]"));
                 for (int i = 0; i < array.length(); i++) {
