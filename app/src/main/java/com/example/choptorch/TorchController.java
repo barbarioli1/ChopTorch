@@ -13,7 +13,7 @@ public final class TorchController {
     private final CameraManager manager;
     private final Listener listener;
     private String flashCameraId;
-    private volatile boolean on;
+    private boolean on;
     private boolean subscribed;
 
     private final CameraManager.TorchCallback callback = new CameraManager.TorchCallback() {
