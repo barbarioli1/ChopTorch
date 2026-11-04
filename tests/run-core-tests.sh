@@ -9,8 +9,6 @@ javac -d "$OUT" "$SRC/MotionSample.java" "$SRC/AngleKalman.java" \
   "$SRC/GestureDetector.java" \
   "$SRC/RecoveredExampleDeduper.java" \
   "$ROOT/tests/CoreSmokeTest.java" \
-  "$ROOT/tests/com/example/choptorch/StreamingDetectorTest.java" \
   "$ROOT/tests/com/example/choptorch/SeedDedupTest.java"
 java -cp "$OUT" CoreSmokeTest
-java -cp "$OUT" com.example.choptorch.StreamingDetectorTest
 java -cp "$OUT" com.example.choptorch.SeedDedupTest

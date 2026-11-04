@@ -15,8 +15,6 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.IBinder;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.PowerManager;
 
 import java.util.List;
@@ -42,7 +40,6 @@ public final class GestureDetectionService extends Service implements SensorEven
     private TorchController torch;
     private GestureStore store;
     private PowerManager.WakeLock wakeLock;
-    private HandlerThread sensorThread;
 
     public static boolean isRunning() { return running; }
     public static double getScore() { return latestScore; }
@@ -101,13 +98,8 @@ public final class GestureDetectionService extends Service implements SensorEven
             torch.initializeAfterPermission();
             if (!torch.hasFlash()) throw new IllegalStateException("Flashlight unavailable");
             detector.reset();
-            // Deliver unbatched 50 Hz IMU data on a dedicated thread, so UI work
-            // and notification updates cannot delay recognition on the main thread.
-            sensorThread = new HandlerThread("ChopTorch-IMU");
-            sensorThread.start();
-            Handler sensorHandler = new Handler(sensorThread.getLooper());
-            boolean acc = manager.registerListener(this, accelerometer, 20000, 0, sensorHandler);
-            boolean gyro = manager.registerListener(this, gyroscope, 20000, 0, sensorHandler);
+            boolean acc = manager.registerListener(this, accelerometer, 20000);
+            boolean gyro = manager.registerListener(this, gyroscope, 20000);
             if (!acc || !gyro) throw new IllegalStateException("Sensor registration failed");
             // Non-wake-up IMU samples need the CPU active while the display is off.
             // This is power intensive; user can stop monitoring from the notification.
@@ -202,10 +194,6 @@ public final class GestureDetectionService extends Service implements SensorEven
     private void stopMonitoring() {
         running = false;
         manager.unregisterListener(this);
-        if (sensorThread != null) {
-            sensorThread.quitSafely();
-            sensorThread = null;
-        }
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         wakeLock = null;
         stopForeground(STOP_FOREGROUND_REMOVE);

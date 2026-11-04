@@ -17,17 +17,14 @@ public final class GestureFeatures {
         public final long peakGapMs;
         public final double maxGyro;
         public final boolean hasDoubleChopShape;
-        /** Timestamp of the newest valid two-peak pair (for event-based re-arming). */
-        public final long newestPairedPeakMs;
 
         public Result(double[] values, int strongPeaks, long peakGapMs,
-                      double maxGyro, boolean hasDoubleChopShape, long newestPairedPeakMs) {
+                      double maxGyro, boolean hasDoubleChopShape) {
             this.values = values;
             this.strongPeaks = strongPeaks;
             this.peakGapMs = peakGapMs;
             this.maxGyro = maxGyro;
             this.hasDoubleChopShape = hasDoubleChopShape;
-            this.newestPairedPeakMs = newestPairedPeakMs;
         }
     }
 
@@ -103,13 +100,10 @@ public final class GestureFeatures {
         long bestGap = 0;
         boolean pairFound = false;
         double bestPairStrength = 0;
-        long newestPairedPeakMs = 0;
         for (int i = 0; i < peaks.size(); i++) {
             for (int j = i + 1; j < peaks.size(); j++) {
                 long gap = samples.get(peaks.get(j)).timeMs - samples.get(peaks.get(i)).timeMs;
                 if (gap < 190 || gap > 1100) continue;
-                newestPairedPeakMs = Math.max(newestPairedPeakMs,
-                        samples.get(peaks.get(j)).timeMs);
                 double strength = Math.min(smooth[peaks.get(i)], smooth[peaks.get(j)]);
                 if (strength > bestPairStrength) {
                     bestPairStrength = strength;
@@ -136,8 +130,7 @@ public final class GestureFeatures {
         features[p++] = pairFound ? scale(bestGap, 1100) : 0;
         for (double v : gyroBins) features[p++] = scale(v, 6);
         if (p != COUNT) throw new AssertionError("Feature dimension mismatch: " + p);
-        return new Result(features, peaks.size(), bestGap, maxGyro,
-                pairFound, newestPairedPeakMs);
+        return new Result(features, peaks.size(), bestGap, maxGyro, pairFound);
     }
 
     private static double scale(double x, double divisor) {

@@ -20,11 +20,11 @@ android {
         applicationId 'com.example.choptorch'
         // A GitHub runner may generate a different debug signing key on every run.
         // Keep the existing v1 install (and its examples) safe alongside v2 dev.
-        if (!shipping) applicationIdSuffix '.devfast'
+        if (!shipping) applicationIdSuffix '.devclassic'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '2.1'
+        versionCode 4
+        versionName '2.2'
         buildConfigField 'boolean', 'ENABLE_TRAINING', shipping ? 'false' : 'true'
     }
 
