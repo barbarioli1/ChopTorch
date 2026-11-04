@@ -1,0 +1,9 @@
+.gradle/
+.idea/
+**/build/
+local.properties
+*.iml
+*.apk
+.DS_Store
+# Gradle wrapper JAR is fetched on first run after verifying Gradle's official checksum.
+gradle/wrapper/gradle-wrapper.jar
