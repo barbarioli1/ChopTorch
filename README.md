@@ -1,107 +1,147 @@
-# ChopTorch v2 — background double-chop flashlight + adaptive training
+# ChopTorch v2.1 — faster background detection, corrected recovered-example count
 
-An offline Android Java app that uses accelerometer and gyroscope measurements, a Kalman-fused attitude estimate, a 27-feature double-chop detector, and a tiny 27→18→1 neural network to toggle the camera LED.
+ChopTorch uses accelerometer + gyroscope data, a Kalman-fused attitude estimate,
+27 motion features, and an offline 27→18→1 neural network to turn the phone flashlight
+on/off with a double-chop gesture. The app has background monitoring, false-positive
+feedback, model export, and a production build without training functionality.
 
+## What changed in v2.1
 
-## This special project includes your recovered v1 training
+**Faster detection (without changing your pretrained neural network):**
 
-This copy includes `app/src/main/assets/choptorch_model.json` (your original trained weights)
-and `app/trainingAssets/choptorch_seed_examples.json` (your 19 v1 gesture examples).
-On the **first launch of a new v2 development install**, it restores the 7 chop and 12
-other-movement labels into the v2 app's own private storage, and uses the v1-trained
-model immediately, so future false-positive reports can retrain from your real samples.
-It will never replace an existing v2 training dataset (the seed is only applied if no
-saved dataset exists). If you already used v2, the existing data wins.
+- Evaluate the unchanged 1.9-second sensor-feature window every **60 ms** instead
+  of every 160 ms, keeping the same 0.82 confidence threshold and two consecutive
+  positive evaluations.
+- Recognize the **newest double-peak event**, rather than allowing the same peaks
+  to be detected repeatedly as the window slides. Only recent completed pairs
+  can trigger. Use a **1.4-second event guard** in place of the old 3-second timer.
+- Deliver 50 Hz sensor callbacks on a dedicated Android `HandlerThread` with
+  batching latency set to zero to avoid main-thread congestion.
 
-In `-Pshipping=true` the development seed asset is **excluded** from the APK and the
-training interface stays disabled; the weights file remains bundled as the pretrained
-model. Note: the original motion examples ARE included in the project source and therefore
-would be visible if you upload this project to a **public** GitHub repository. Use a
-private repository if you do not want to publish those examples.
+**Recovered-example bug:** In v2, first-launch initialization loaded your recovered
+19 examples twice into memory (making 7 + 12 look like 38). v2.1 loads them once.
+It can also repair an *exact*, accidentally persisted repeat of the known 19-item
+seed without deleting any other recordings or feedback you added.
 
-If you need to replace this model later, use the new v2 export button and update
-`app/src/main/assets/choptorch_model.json` with the exported version.
+**Model currency:** When you add new examples, the old bundled model is not
+misreported as retrained on them. Train again before resuming recognition.
 
-## What's new in v2
+The original learned **27 feature definitions, 1.9-second window, and weights**
+remain unchanged. Your recovered `choptorch_model.json` is included.
 
-1. **Continue listening in the background / with screen locked:** tapping **Start background detection** starts a visible foreground service. The service, not the Activity, owns the IMU listener, classifier, and torch. It continues after you switch apps or lock the phone, subject to Android power-management restrictions. The notification has a **Stop** action; **Stop background detection** in the app does the same. Detection does not begin automatically on boot or after a system kill. A `PARTIAL_WAKE_LOCK` is held ONLY while listening and released on Stop/service destruction; this can drain the battery.
-2. **One-tap false-positive feedback:** after a double-chop detection turns the torch **ON**, the exact 27-element feature vector from the triggering sensor window is saved locally. For 10 minutes, tap **Flag last ON as false positive** on the home page or the notification action. This labels that **same window as a negative example**, clears it so it cannot be submitted twice, switches the torch off, and retrains from all saved labeled samples on a worker thread. Monitoring pauses predictions while the model is stale and resumes when training completes. The UI displays the result. This feature is available only in training builds.
-3. **Export trained weights:** tap **Export trained NN weights (JSON)**, choose a destination using Android's document picker, and save `choptorch_model.json`. The JSON contains `modelVersion`, `featureVersion`, `featureCount`, `hiddenCount`, detection gate/threshold/window information, `w1`, `b1`, `w2`, `b2`, and `trainedCount`. **Only model parameters are exported, not your individual gesture examples.**
-4. **Production mode:** build with `-Pshipping=true` after adding the exported JSON to `app/src/main/assets/choptorch_model.json`. The shipping build loads that bundled model, hides and disables all training, labeling, model export, and erase controls, and does not load/store the device's training samples. The build FAILS if the weights asset is missing; no random/untrained model is silently shipped.
+> Recognition is not instantaneous at startup: the detector first needs roughly
+> 1.6 seconds of sensor history. After that, it can recognize a fresh double-chop
+> much sooner than before, depending on its confidence, the phone's sensor/LED
+> hardware and Android scheduling. Real-world latency is not yet measured.
 
-## Updating from the original ChopTorch v1 (important)
+## Your recovered v1 data is included
 
-GitHub-hosted debug builds may be signed with **different keys on different runs**. An APK signed with a different key cannot update the same package without uninstalling the existing app, and **uninstalling deletes your private v1 training examples and model** (`android:allowBackup=false`).
+This project contains:
 
-For this reason the **v2 training APK deliberately installs side-by-side** as `com.example.choptorch.dev`, leaving your original `com.example.choptorch` and its training data untouched. You will need to record/train fresh examples in the new v2 dev app because Android prevents an app from accessing another app's private data. After training v2, export its model and bundle it in the v2 shipping build. The shipping build uses the original application ID `com.example.choptorch`, so if the previous install has a different signing key, Android may require uninstalling that older app before shipping can be installed. The exported model is baked into the shipping app and will not be lost when the development app is later removed. For a real product configure a consistent private signing key.
+- `app/src/main/assets/choptorch_model.json` — your original trained network.
+- `app/trainingAssets/choptorch_seed_examples.json` — your **19 original examples**:
+  **7 double-chops + 12 non-double-chops**.
 
-## First build (training/development)
+On the very first launch of a new **v2.1 development APK**, the app restores
+these examples, then loads the original model, so you can immediately test and
+continue training. The seed never overwrites already-existing data. For shipping
+builds the gesture examples asset is excluded and the training/feedback/export
+screens are disabled; only the pretrained model is bundled.
 
-Requirements: Android 8.0+, Java 17, Android SDK 36, Android Gradle Plugin 8.13.2, Gradle 8.13. Use Android Studio or GitHub Actions.
+**Important privacy note:** Gesture examples and model weights are files within
+this source project; if you publish it on a public GitHub repository, anyone can
+inspect them. Use a private repository if that is not what you intend.
 
-```bash
-gradle assembleDebug
-```
+## Safely install the new development version
 
-Run tests without the Android SDK:
+New GitHub debug builds may have different signing certificates. An APK with a
+new signature cannot update an installed APK of the same package name.
+Uninstalling an earlier APK permanently removes its private data unless you
+backed it up first.
+
+**To protect your v1 and v2 apps, v2.1 training uses a NEW package name:**
+`com.example.choptorch.devfast`. It installs **side-by-side** with the original
+v1 (`com.example.choptorch`) and v2 dev (`com.example.choptorch.dev`).
+It does **not** read any extra recordings or learned corrections from your earlier
+v2 `.dev` install. If those are important, export the old v2 model and keep that
+app installed until you have backed up any data you want to retain.
+
+### Build on GitHub Actions
+
+1. Upload this project, including its `.github` folder, into your GitHub repository.
+2. Open **Actions → Build Android APK → Run workflow**.
+3. Leave `shipping` **unchecked** to make the development/training APK.
+4. Download the `ChopTorch-debug-apk` artifact from the successful run, extract
+   `app-debug.apk`, and install it on your Android phone.
+5. On first launch, open the training page: the count should be **7 positive**
+   and **12 negative**. Return home and start background detection.
+6. Try double chops and test everyday movements. A false activation turning the
+   torch on can be reported with **Flag last ON as false positive**; the recorded
+   triggering features become a negative example and retraining runs on-device.
+
+Build with Android Studio if preferred. Android SDK 36, Java 17, AGP 8.13.2 and
+Gradle 8.13 are specified by the project. The GitHub workflow runs the pure-Java
+tests before Gradle's Android build.
+
+### Tests (requires Java, not the Android SDK)
 
 ```bash
 bash tests/run-core-tests.sh
 ```
 
-For GitHub Actions: push the entire project including `.github/workflows/build-apk.yml`. Go to **Actions → Build Android APK → Run workflow**, leave **shipping** unchecked, and download the `ChopTorch-debug-apk` artifact from the successful run. The debug APK can be installed by allowing installation from your browser/file manager.
+The tests check basic Kalman fusion, synthetic NN training/classification, two
+distinct streaming double-chops (trigger once each), no detection for single
+chops, and safe duplicate recovery. In the synthetic 50 Hz test, recognition
+follows the completed pair by 120–140 ms. This does **not** guarantee that
+latency on your device, where the timing and model confidence will differ.
 
-## How to train and improve it
+## Export your model, then build production mode
 
-1. Open **Open training page**; this stops background detection to avoid conflict with recording.
-2. Gather at least 6 positive double chops and 6 negative everyday motions. For usable results record 20 or more of each, including fast phone pickups, walking, pocket movements and single chops. Perform the gesture with your **phone**, not a real knife.
-3. Tap **Train neural network**, then **Back to flashlight → Start background detection**. Grant Camera and Notification permissions when prompted. **Lock the phone and try two chops.** The foreground notification indicates monitoring is active.
-4. When an incorrect double-chop detection turns the torch ON, immediately tap **Flag last ON as false positive** in the app or the notification. The flashlight is forced off, that triggering window becomes a *negative* training sample, and the model retrains automatically. Only the most recent ON detection is eligible, for 10 minutes.
-5. Continue training, especially with negatives. A high training-set accuracy is not proof of reliability; test on movements not used for training.
+1. Continue training on the **new v2.1 development app** if needed. Then tap
+   **Export NN weights (JSON)** and save the exported model to your phone.
+2. Replace `app/src/main/assets/choptorch_model.json` in your GitHub project
+   with the exported weights.
+3. In **Actions → Build Android APK → Run workflow**, enable `shipping`.
+   Alternatively, run `gradle assembleDebug -Pshipping=true`.
+4. The production-mode APK bundles the model but omits the training page,
+   feedback and export functionality. It does not import local training data.
 
-No sensor traces, feature vectors, or model weights are transmitted by this app. Data stays on the device unless you deliberately export the JSON model.
+Shipping mode uses application ID `com.example.choptorch`, which can conflict
+with v1; a different APK signature may prevent an in-place install. Keep any
+valuable v1 data backed up before uninstalling v1. For real distribution, use
+an intentionally configured **persistent release signing key** and build a
+release APK/AAB. A GitHub debug APK is suitable for testing, not storefront release.
 
-## Build with a pretrained model and NO training UI
+## Background monitoring and limits
 
-1. On the trained development build, tap **Export trained NN weights (JSON)**. Save the file as `choptorch_model.json`.
-2. Copy the exported file to `app/src/main/assets/choptorch_model.json` within your source project/repository. You can use GitHub's **Add file → Upload files** in this folder.
-3. In GitHub **Actions → Build Android APK → Run workflow**, check **shipping**. This runs:
+- A user-initiated foreground service owns the sensor listeners and flashlight,
+  including when the phone is locked, subject to Android battery restrictions.
+  The service shows an ongoing notification with a Stop control. It does not
+  secretly auto-start after restart or phone reboot.
+- A partial wake lock is held while monitoring non-wakeup IMU sensors; this
+  can use significant battery. Android device-specific battery restrictions
+  and camera torch arbitration may still limit background performance.
+- `CAMERA`, foreground-service (`specialUse`), notification, and wake lock
+  declarations are included. Publishing on Google Play may require review of
+  the foreground-service subtype.
+- Feedback is available only in development mode, only for the **latest detected
+  gesture that turned the torch ON**, and only within 10 minutes. It uses the
+  exact 27 inputs that caused that activation, not the phone movement when you
+  touch the feedback button. You can submit an individual detection only once.
+- Keep the phone securely in your hand during training; “chop” means moving the
+  phone, not wielding an actual knife.
 
-   ```bash
-   gradle assembleDebug -Pshipping=true
-   ```
+## Main files
 
-   The output is a *debug-signed production-mode preview APK* — suitable for sideload testing only. Training/feedback/export are absent from the interface and inaccessible at runtime, even though the executable's UI code is shared.
-4. For an actual store distribution, create your signing configuration, choose the appropriate release artifact (APK or AAB), and run a release build with the same flag:
+- `GestureDetector.java`: faster, event-based inference using the same NN features.
+- `GestureFeatures.java`: the original 27 features plus a non-model event timestamp.
+- `GestureDetectionService.java`: foreground sensor thread, notification, torch.
+- `GestureStore.java`: corrected seed loading, model management, feedback, export.
+- `RecoveredExampleDeduper.java`: narrowly targeted exact-seed repair.
+- `MainActivity.java`: feedback and optional training/export controls.
+- `app/build.gradle`: separate development ID, `-Pshipping=true` production flag.
+- `.github/workflows/build-apk.yml`: selectable development/production APK builds.
 
-   ```bash
-   gradle assembleRelease -Pshipping=true
-   ```
-
-   The release variant is unsigned unless you configure a release signing key. Google Play may require you to justify the `specialUse` foreground service declaration before publication.
-
-**Important:** don't put `choptorch_model.json` in `.gitignore` or rename its model JSON keys. Use a model exported by this app, not random third-party model weights. A production build must have a valid exported model. If you replace sensor preprocessing or feature extraction later, increment the `featureVersion` and retrain/re-export.
-
-## Android-specific behavior and limits
-
-- The background detector uses the Android 14+ foreground-service type **`specialUse`** with a manifest explanation; Google Play reviews such declarations. It starts only from a visible user action, never silently in the background. Android 13+ notification permission is requested for notification visibility.
-- Accelerometer and gyroscope are often non-wake-up sensors. A partial wake lock keeps the CPU active while the screen is off, but OEM-specific energy policies can still stop/limit monitoring. **Continuous 50 Hz monitoring will consume battery.** Use Stop whenever not needed; test several hours of real-world use.
-- If your phone aggressively terminates the service, try Android Settings → Apps → ChopTorch → Battery → Unrestricted, where supported. Do not expect operation after a force-stop, reboot, or manual service stop. This app does not bypass the device's power-management rules.
-- Some camera APIs or manufacturer customizations may block torch control while the phone is locked; test on your exact model. The app is not a system-level gesture recognizer.
-- The saved false-positive vector corresponds to the **classification window that switched the torch ON**, not whatever your phone was doing when you tapped the button. The latest candidate expires after 10 minutes; no feedback is stored in a production build.
-- Torch permission is `CAMERA`; no camera image is captured.
-- `POST_NOTIFICATIONS` is requested on Android 13+; foreground service still has to exist under Android's notification rules even if the runtime notification permission is denied.
-- The model threshold remains 0.82, with the original two-peak gate and 3-second cooldown.
-
-## Changes and key files
-
-- `GestureDetectionService.java`: lifecycle, notification, sensor callbacks, wake lock, false-positive feedback, automatic retraining.
-- `GestureDetector.java`: standalone streaming Kalman + feature + NN detector used by the service.
-- `GestureStore.java`: labeled dataset, exact triggering-window feedback, JSON export, bundled model load.
-- `MainActivity.java`: training UI (dev only), background detector start/stop, feedback and export UI.
-- `app/build.gradle`: `-Pshipping=true` compile-time production flag and mandatory pretrained model asset check.
-- `.github/workflows/build-apk.yml`: selectable development/production-mode APK build.
-
-## Build/test status
-
-Local tests passed for sensor fusion and synthetic neural-network data. All Java sources also passed a type/syntax compilation check using temporary Android API stubs, in both training and shipping modes. **A full Android APK build and physical-device test have NOT been run in this sandbox** because the Android SDK/Gradle downloads are not available here. Use the included GitHub Actions workflow for a real APK build; share the build log if GitHub reports an error.
+**Build status:** Pure-Java tests passed in the sandbox. A full Android SDK
+compilation and test on a real phone have **not** been performed in this
+sandbox. Use the included GitHub Actions workflow to produce and verify an APK.
