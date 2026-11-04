@@ -34,36 +34,16 @@ public final class GestureStore {
     private GestureStore(Context context) {
         preferences = context.getSharedPreferences("choptorch_private", Context.MODE_PRIVATE);
         if (BuildConfig.ENABLE_TRAINING) {
-            // Optional one-time migration seed for developers restoring their v1 data.
-            // Only applies to a fresh v2 development install; never overwrites saved data.
-            // In shipping mode this code is skipped AND the seed asset is not packaged.
-            if (!preferences.contains(KEY_EXAMPLES)) {
-                try (InputStream input = context.getAssets().open("choptorch_seed_examples.json")) {
-                    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                    byte[] buffer = new byte[4096];
-                    int n;
-                    while ((n = input.read(buffer)) != -1) bytes.write(buffer, 0, n);
-                    JSONObject seed = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
-                    if (seed.getInt("featureCount") != TinyNeuralNet.INPUT) {
-                        throw new JSONException("Wrong training feature version");
-                    }
-                    JSONArray samples = seed.getJSONArray("examples");
-                    List<TinyNeuralNet.Example> restored = new ArrayList<>();
-                    for (int i = 0; i < samples.length(); i++) {
-                        JSONObject sample = samples.getJSONObject(i);
-                        restored.add(new TinyNeuralNet.Example(
-                                toDoubles(sample.getJSONArray("x"), TinyNeuralNet.INPUT),
-                                sample.getBoolean("positive")));
-                    }
-                    if (restored.size() >= 12) {
-                        examples.clear();
-                        examples.addAll(restored);
-                        saveExamples();
-                    }
-                } catch (Exception missingOrInvalidSeed) {
-                    // Ordinary development projects have no seed; use manual training.
-                }
+            // Seed data are bundled only in development builds, never in shipping.
+            // Read once, then load from preferences once: the original v2 first
+            // launch accidentally kept seed examples in memory and appended them
+            // again while reading preferences (19 displayed as 38).
+            List<TinyNeuralNet.Example> seed = readSeedExamples(context);
+            if (!preferences.contains(KEY_EXAMPLES) && seed.size() >= 12) {
+                examples.addAll(seed);
+                saveExamples();
             }
+            examples.clear();
             try {
                 JSONArray array = new JSONArray(preferences.getString(KEY_EXAMPLES, "[]"));
                 for (int i = 0; i < array.length(); i++) {
@@ -74,10 +54,21 @@ public final class GestureStore {
             } catch (Exception bad) {
                 examples.clear();
             }
+            // Repair any copy of the v2 seed that was actually persisted twice
+            // (e.g., a user retrained on the first session). Only remove the
+            // duplicated recovered block, never independently recorded gestures.
+            int duplicatesRemoved = RecoveredExampleDeduper.removeDuplicatedSeed(examples, seed);
+            if (duplicatesRemoved != 0) saveExamples();
             try {
                 JSONObject saved = new JSONObject(preferences.getString(KEY_MODEL, "{}"));
                 model = decodeModel(saved);
-                trainedCount = saved.getInt("trainedCount");
+                int originalCount = saved.getInt("trainedCount");
+                trainedCount = originalCount;
+                if (duplicatesRemoved > 0 && originalCount >= duplicatesRemoved) {
+                    trainedCount = originalCount - duplicatesRemoved;
+                    preferences.edit().putString(KEY_MODEL,
+                            encodeModel(model, trainedCount).toString()).apply();
+                }
             } catch (Exception ignored) {
                 model = null;
                 trainedCount = -1;
@@ -91,13 +82,39 @@ public final class GestureStore {
                 byte[] buffer = new byte[4096];
                 int n;
                 while ((n = input.read(buffer)) != -1) bytes.write(buffer, 0, n);
-                model = decodeModel(new JSONObject(bytes.toString(StandardCharsets.UTF_8.name())));
-                trainedCount = examples.size();
+                JSONObject bundled = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+                model = decodeModel(bundled);
+                // In development, new examples require retraining; do not silently
+                // relabel old bundled weights as trained on a larger dataset.
+                // In shipping, examples are intentionally never loaded.
+                trainedCount = BuildConfig.ENABLE_TRAINING
+                        ? bundled.optInt("trainedCount", -1) : examples.size();
             } catch (Exception missingOrInvalid) {
                 model = null;
                 trainedCount = -1;
             }
         }
+    }
+
+    private static List<TinyNeuralNet.Example> readSeedExamples(Context context) {
+        List<TinyNeuralNet.Example> restored = new ArrayList<>();
+        try (InputStream input = context.getAssets().open("choptorch_seed_examples.json")) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int n;
+            while ((n = input.read(buffer)) != -1) bytes.write(buffer, 0, n);
+            JSONObject seed = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+            if (seed.getInt("featureCount") != TinyNeuralNet.INPUT)
+                throw new JSONException("Wrong training feature version");
+            JSONArray samples = seed.getJSONArray("examples");
+            for (int i = 0; i < samples.length(); i++) {
+                JSONObject sample = samples.getJSONObject(i);
+                restored.add(new TinyNeuralNet.Example(
+                        toDoubles(sample.getJSONArray("x"), TinyNeuralNet.INPUT),
+                        sample.getBoolean("positive")));
+            }
+        } catch (Exception ignored) { restored.clear(); }
+        return restored;
     }
 
     private static double[] toDoubles(JSONArray json, int n) throws JSONException {
