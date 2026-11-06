@@ -3,6 +3,7 @@ package com.example.choptorch;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
@@ -16,6 +17,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -38,6 +41,10 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private static final int CAMERA_REQUEST = 31;
     private static final int EXPORT_REQUEST = 32;
     private static final int NOTIFICATION_REQUEST = 33;
+    private static final int BATTERY_SETTINGS_REQUEST = 34;
+    private static final String STATE_MONITORING_START = "monitoring_start_state";
+    private static final String STATE_BATTERY_ALLOWLISTED = "battery_allowlisted_on_return";
+    private static final String STATE_PERMISSION_ACTION = "monitoring_permission_action";
     private static final long WINDOW_MS = GestureDetector.WINDOW_MS;
     private static final int BG = 0xFF0A1220;
     private static final int CARD = 0xFF142235;
@@ -48,6 +55,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService trainingWorker = Executors.newSingleThreadExecutor();
     private final MotionProcessor recordingMotion = new MotionProcessor();
+    private final MonitoringStartFlow monitoringStartFlow = new MonitoringStartFlow();
     private SensorManager sensorManager;
     private Sensor accelerometer, gyroscope;
     private GestureStore store;
@@ -58,6 +66,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private ArrayList<MotionSample> recordingSamples;
     private GestureFeatures.Result pendingResult;
     private Runnable prepareTask, finishTask;
+    private AlertDialog batteryDialog;
 
     private LinearLayout page;
     private TextView statusText, countText, hintText, torchText, scoreText, feedbackText;
@@ -73,6 +82,11 @@ public final class MainActivity extends Activity implements SensorEventListener 
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            monitoringStartFlow.restoreState(savedInstanceState.getInt(STATE_MONITORING_START),
+                    savedInstanceState.getBoolean(STATE_BATTERY_ALLOWLISTED));
+            permissionAction = savedInstanceState.getInt(STATE_PERMISSION_ACTION);
+        }
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         store = GestureStore.shared(this);
@@ -86,6 +100,13 @@ public final class MainActivity extends Activity implements SensorEventListener 
         showHome();
     }
 
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        outState.putInt(STATE_MONITORING_START, monitoringStartFlow.saveState());
+        outState.putBoolean(STATE_BATTERY_ALLOWLISTED, monitoringStartFlow.saveAllowlistedOnReturn());
+        outState.putInt(STATE_PERMISSION_ACTION, permissionAction);
+        super.onSaveInstanceState(outState);
+    }
+
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
@@ -95,6 +116,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
         syncTrainingSensors();
         handler.removeCallbacks(refresh);
         handler.post(refresh);
+        restorePendingStartPrompt();
     }
 
     @Override protected void onPause() {
@@ -240,14 +262,14 @@ public final class MainActivity extends Activity implements SensorEventListener 
         pendingResult = null;
         preparing = true;
         updateLabels();
-        statusText.setText("GET READY… hold the phone firmly");
+        statusText.setText(getString(R.string.recording_ready));
         prepareTask = () -> {
             if (!preparing) return;
             preparing = false;
             recording = true;
             recordingMotion.reset();
             recordingSamples = new ArrayList<>();
-            statusText.setText("MOVE NOW — perform the movement!");
+            statusText.setText(getString(R.string.recording_move));
             updateLabels();
             finishTask = this::finishRecording;
             handler.postDelayed(finishTask, WINDOW_MS);
@@ -264,8 +286,8 @@ public final class MainActivity extends Activity implements SensorEventListener 
         if (pendingResult == null || samples.isEmpty() ||
                 samples.get(samples.size() - 1).timeMs - samples.get(0).timeMs < 1300) {
             pendingResult = null;
-            statusText.setText("Too few sensor readings. Try again.");
-        } else statusText.setText("Recorded! Please confirm what you did.");
+            statusText.setText(getString(R.string.recording_too_few_samples));
+        } else statusText.setText(getString(R.string.recording_confirm));
         updateLabels();
     }
 
@@ -279,7 +301,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
 
     private void discardRecording() {
         pendingResult = null;
-        statusText.setText("Recording discarded.");
+        statusText.setText(getString(R.string.recording_discarded));
         updateLabels();
     }
 
@@ -299,7 +321,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
             return;
         }
         training = true;
-        if (onTrainingPage) statusText.setText("Training neural network…");
+        if (onTrainingPage) statusText.setText(getString(R.string.training_started));
         updateLabels();
         trainingWorker.execute(() -> {
             String message;
@@ -351,6 +373,17 @@ public final class MainActivity extends Activity implements SensorEventListener 
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == BATTERY_SETTINGS_REQUEST) {
+            if (!monitoringStartFlow.isWaitingForSettings()) return;
+            if (!monitoringStartPrerequisitesReady()) {
+                cancelPendingStart();
+                showToast("Monitoring was not started. Check permissions and device requirements, then try again.");
+                return;
+            }
+            monitoringStartFlow.settingsReturned(isIgnoringBatteryOptimizations());
+            if (resumed) showSettingsReturnConfirmation();
+            return;
+        }
         if (requestCode != EXPORT_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
@@ -370,12 +403,16 @@ public final class MainActivity extends Activity implements SensorEventListener 
                 .setPositiveButton("Erase", (dialog, which) -> {
                     store.eraseAll();
                     pendingResult = null;
-                    if (onTrainingPage) statusText.setText("Data erased. Record fresh examples.");
+                    if (onTrainingPage) statusText.setText(getString(R.string.data_erased));
                     updateLabels();
                 }).show();
     }
 
     private void changeListening() {
+        if (monitoringStartFlow.isPending()) {
+            cancelPendingStart();
+            return;
+        }
         if (GestureDetectionService.isRunning()) {
             startService(GestureDetectionService.command(this, GestureDetectionService.ACTION_STOP));
             handler.postDelayed(this::updateLabels, 250);
@@ -387,10 +424,12 @@ public final class MainActivity extends Activity implements SensorEventListener 
             if (BuildConfig.ENABLE_TRAINING) showTraining();
             return;
         }
+        monitoringStartFlow.begin();
         askForCamera(2);
     }
 
     private void askForCamera(int action) {
+        if (action == 1 && monitoringStartFlow.isPending()) cancelPendingStart();
         permissionAction = action;
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQUEST);
@@ -402,30 +441,169 @@ public final class MainActivity extends Activity implements SensorEventListener 
         if (requestCode != CAMERA_REQUEST) return;
         if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED)
             completeCameraAction(permissionAction);
-        else showToast("Camera permission is needed for flashlight control.");
+        else {
+            if (permissionAction == 2) cancelPendingStart();
+            showToast("Camera permission is needed for flashlight control.");
+        }
     }
 
     private void completeCameraAction(int action) {
         try {
             torch.initializeAfterPermission();
-            if (!torch.hasFlash()) { showToast("No camera flashlight found."); return; }
+            if (!torch.hasFlash()) {
+                if (action == 2) cancelPendingStart();
+                showToast("No camera flashlight found.");
+                return;
+            }
             if (action == 1) {
                 torch.toggle();
             } else if (action == 2) {
-                startForegroundService(GestureDetectionService.command(this, GestureDetectionService.ACTION_START));
-                if (Build.VERSION.SDK_INT >= 33 &&
-                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
+                if (!monitoringStartPrerequisitesReady()) {
+                    cancelPendingStart();
+                    showToast("Monitoring requirements changed. Check the detector status and try again.");
+                    return;
+                }
+                monitoringStartFlow.cameraReady(isIgnoringBatteryOptimizations());
+                if (monitoringStartFlow.isReadyToStart()) startPendingMonitoring();
+                else showBatteryGuidance();
             }
             updateLabels();
-        } catch (Exception e) { showToast("Flashlight error: " + e.getMessage()); }
+        } catch (Exception e) {
+            if (action == 2) cancelPendingStart();
+            showToast("Flashlight error: " + e.getMessage());
+        }
+    }
+
+    private boolean monitoringStartPrerequisitesReady() {
+        if (!sensorsReady || !store.isModelCurrent()
+                || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return false;
+        try {
+            torch.initializeAfterPermission();
+            return torch.hasFlash();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isIgnoringBatteryOptimizations() {
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        return powerManager != null && powerManager.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    private void showBatteryGuidance() {
+        if (batteryDialog != null && batteryDialog.isShowing()) return;
+        batteryDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.battery_guidance_title)
+                .setMessage(R.string.battery_guidance_message)
+                .setNegativeButton(R.string.battery_open_settings, (dialog, which) -> {
+                    batteryDialog = null;
+                    openBatterySettings();
+                })
+                .setPositiveButton(R.string.battery_continue, (dialog, which) -> {
+                    batteryDialog = null;
+                    if (monitoringStartFlow.continueWithoutChanging()) startPendingMonitoring();
+                })
+                .setNeutralButton(R.string.battery_cancel, (dialog, which) -> cancelPendingStart())
+                .setOnCancelListener(dialog -> cancelPendingStart())
+                .create();
+        batteryDialog.show();
+    }
+
+    private void openBatterySettings() {
+        if (!monitoringStartFlow.openSettings()) return;
+        Intent appSettings = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName()));
+        try {
+            startActivityForResult(appSettings, BATTERY_SETTINGS_REQUEST);
+        } catch (ActivityNotFoundException unavailable) {
+            try {
+                startActivityForResult(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+                        BATTERY_SETTINGS_REQUEST);
+            } catch (ActivityNotFoundException noFallback) {
+                monitoringStartFlow.settingsUnavailable();
+                showBatterySettingsUnavailable();
+            }
+        }
+    }
+
+    private void showBatterySettingsUnavailable() {
+        batteryDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.battery_settings_unavailable_title)
+                .setMessage(R.string.battery_settings_unavailable_message)
+                .setPositiveButton(R.string.battery_continue, (dialog, which) -> {
+                    batteryDialog = null;
+                    if (monitoringStartFlow.continueWithoutChanging()) startPendingMonitoring();
+                })
+                .setNegativeButton(R.string.battery_cancel, (dialog, which) -> cancelPendingStart())
+                .setOnCancelListener(dialog -> cancelPendingStart())
+                .create();
+        batteryDialog.show();
+    }
+
+    private void showSettingsReturnConfirmation() {
+        String status = getString(monitoringStartFlow.wasAllowlistedWhenReturned()
+                ? R.string.battery_status_allowlisted : R.string.battery_status_not_allowlisted);
+        batteryDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.battery_return_title)
+                .setMessage(getString(R.string.battery_return_message, status))
+                .setPositiveButton(R.string.battery_confirm_start, (dialog, which) -> {
+                    batteryDialog = null;
+                    if (monitoringStartFlow.confirmAfterSettings()) startPendingMonitoring();
+                })
+                .setNegativeButton(R.string.battery_cancel, (dialog, which) -> cancelPendingStart())
+                .setOnCancelListener(dialog -> cancelPendingStart())
+                .create();
+        batteryDialog.show();
+    }
+
+    private void restorePendingStartPrompt() {
+        if (monitoringStartFlow.isAwaitingBatteryChoice()) showBatteryGuidance();
+        else if (monitoringStartFlow.isAwaitingReturnConfirmation()) showSettingsReturnConfirmation();
+    }
+
+    private void startPendingMonitoring() {
+        if (!resumed || !monitoringStartFlow.isReadyToStart()) return;
+        if (!monitoringStartPrerequisitesReady()) {
+            cancelPendingStart();
+            showToast("Monitoring requirements changed. Check the detector status and try again.");
+            return;
+        }
+        if (!monitoringStartFlow.consumeStart()) return;
+        permissionAction = 0;
+        try {
+            startForegroundService(GestureDetectionService.command(this, GestureDetectionService.ACTION_START));
+            if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
+            updateLabels();
+        } catch (Exception failure) {
+            showToast("Could not start monitoring: " + failure.getMessage());
+            updateLabels();
+        }
+    }
+
+    private void cancelPendingStart() {
+        monitoringStartFlow.cancel();
+        permissionAction = 0;
+        AlertDialog dialog = batteryDialog;
+        batteryDialog = null;
+        if (dialog != null && dialog.isShowing()) dialog.dismiss();
+        updateLabels();
     }
 
     private void updateLabels() {
         if (torchText != null && !onTrainingPage)
             torchText.setText(torch.isOn() ? "FLASHLIGHT ON" : "FLASHLIGHT OFF");
-        if (countText != null)
-            countText.setText(store.count(true) + " double chops  ·  " + store.count(false) + " other movements");
+        if (countText != null) {
+            int positiveCount = store.count(true);
+            int negativeCount = store.count(false);
+            String positiveSummary = getResources().getQuantityString(
+                R.plurals.double_chop_count, positiveCount, positiveCount);
+            String negativeSummary = getResources().getQuantityString(
+                R.plurals.other_movement_count, negativeCount, negativeCount);
+            countText.setText(getString(R.string.training_count_summary,
+                positiveSummary, negativeSummary));
+        }
         if (!onTrainingPage) {
             if (statusText != null) {
                 statusText.setText(!sensorsReady ? "No accelerometer or gyroscope found"
@@ -440,8 +618,10 @@ public final class MainActivity extends Activity implements SensorEventListener 
                         : "Last error: " + error);
             }
             if (listenButton != null) {
-                listenButton.setText(GestureDetectionService.isRunning() ? "Stop background detection" : "Start background detection");
-                listenButton.setEnabled(sensorsReady && store.isModelCurrent());
+                listenButton.setText(GestureDetectionService.isRunning() ? "Stop background detection"
+                        : monitoringStartFlow.isPending() ? "Cancel monitoring start" : "Start background detection");
+                listenButton.setEnabled(monitoringStartFlow.isPending()
+                    || sensorsReady && store.isModelCurrent());
             }
             if (falsePositiveButton != null) falsePositiveButton.setEnabled(store.hasFeedbackCandidate());
             if (feedbackText != null) feedbackText.setText(store.getFeedbackMessage());
