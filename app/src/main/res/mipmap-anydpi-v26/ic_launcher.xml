@@ -1,0 +1,7 @@
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="ObsoleteSdkInt">
+    <background android:drawable="@color/choptorch_icon_background" />
+    <foreground android:drawable="@drawable/choptorch_icon_foreground" />
+    <monochrome android:drawable="@drawable/choptorch_icon_monochrome" />
+</adaptive-icon>

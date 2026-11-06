@@ -23,7 +23,84 @@ public final class CoreSmokeTest {
         }
         return recordings;
     }
+
+    private static List<TinyNeuralNet.Example> trainingExamples(int positives, int negatives) {
+        ArrayList<TinyNeuralNet.Example> examples = new ArrayList<>();
+        for (int index = 0; index < positives; index++) {
+            examples.add(new TinyNeuralNet.Example(new double[TinyNeuralNet.INPUT], true));
+        }
+        for (int index = 0; index < negatives; index++) {
+            examples.add(new TinyNeuralNet.Example(new double[TinyNeuralNet.INPUT], false));
+        }
+        return examples;
+    }
+
+    private static void assertTrainingRejected(int positives, int negatives) {
+        try {
+            new TinyNeuralNet().train(trainingExamples(positives, negatives));
+        } catch (IllegalArgumentException expected) {
+            return;
+        }
+        throw new AssertionError("Expected training rejection for " + positives + "/" + negatives);
+    }
+
+    private static void verifyTrainingClassMinimums() {
+        assertTrainingRejected(5, 6);
+        assertTrainingRejected(6, 5);
+        TinyNeuralNet.Metrics metrics = new TinyNeuralNet().train(trainingExamples(6, 6));
+        if (metrics.positives != 6 || metrics.negatives != 6) {
+            throw new AssertionError("Training should accept exactly six examples per class");
+        }
+    }
+
+    private static GestureFeatures.Result makePeakPair(long gapMs) {
+        ArrayList<MotionSample> samples = new ArrayList<>();
+        long firstPeakMs = 300;
+        long secondPeakMs = firstPeakMs + gapMs;
+        for (long timeMs = 0; timeMs <= 1800; timeMs += 10) {
+            double first = Math.exp(-Math.pow((timeMs - firstPeakMs) / 40.0, 2));
+            double second = Math.exp(-Math.pow((timeMs - secondPeakMs) / 40.0, 2));
+            samples.add(new MotionSample(timeMs, 0, 0, 0, 4 * (first + second), 0, 0, 0, 0));
+        }
+        return GestureFeatures.extract(samples);
+    }
+
+    private static void assertPeakPairGap(long gapMs, boolean expectedShape) {
+        GestureFeatures.Result result = makePeakPair(gapMs);
+        long expectedReportedGap = expectedShape ? gapMs : 0;
+        if (result == null || result.hasDoubleChopShape != expectedShape
+                || result.peakGapMs != expectedReportedGap) {
+            throw new AssertionError("Unexpected peak-pair result for " + gapMs + " ms: shape="
+                    + (result != null && result.hasDoubleChopShape) + ", gap="
+                    + (result == null ? "null" : result.peakGapMs));
+        }
+    }
+
+    private static void verifyPeakPairBoundaries() {
+        assertPeakPairGap(180, false);
+        assertPeakPairGap(190, true);
+        assertPeakPairGap(200, true);
+        assertPeakPairGap(1100, true);
+        assertPeakPairGap(1110, false);
+    }
+
+    private static void verifyTimestampDiscontinuities() {
+        MotionProcessor processor = new MotionProcessor();
+        processor.onGyroscope(1.0, 2.0, 3.0);
+        MotionSample initial = processor.onAccelerometer(2_000_000_000L, 0, 0, 9.80665);
+        MotionSample nonmonotonic = processor.onAccelerometer(1_500_000_000L, 0, 0, 9.80665);
+        processor.onGyroscope(1.0, 2.0, 3.0);
+        MotionSample afterGap = processor.onAccelerometer(2_100_000_001L, 0, 0, 9.80665);
+        if (initial.gx != 1.0 || nonmonotonic.gx != 0.0 || afterGap.gx != 0.0
+                || !Double.isFinite(nonmonotonic.roll) || !Double.isFinite(afterGap.pitch)) {
+            throw new AssertionError("Motion fusion did not safely reset across timestamp discontinuities");
+        }
+    }
+
     public static void main(String[] args) {
+        verifyTrainingClassMinimums();
+        verifyPeakPairBoundaries();
+        verifyTimestampDiscontinuities();
         GestureFeatures.Result doubleMotion = GestureFeatures.extract(makeRecording(true, 1));
         GestureFeatures.Result singleMotion = GestureFeatures.extract(makeRecording(false, 2));
         if (doubleMotion == null || !doubleMotion.hasDoubleChopShape || doubleMotion.strongPeaks < 2) {

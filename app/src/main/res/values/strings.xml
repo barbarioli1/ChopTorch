@@ -1,3 +1,31 @@
 <resources>
     <string name="app_name">ChopTorch</string>
+    <string name="recording_ready">GET READY… hold the phone firmly</string>
+    <string name="recording_move">MOVE NOW — perform the movement!</string>
+    <string name="recording_too_few_samples">Too few sensor readings. Try again.</string>
+    <string name="recording_confirm">Recorded! Please confirm what you did.</string>
+    <string name="recording_discarded">Recording discarded.</string>
+    <string name="training_started">Training neural network…</string>
+    <string name="data_erased">Data erased. Record fresh examples.</string>
+    <string name="training_count_summary">%1$s  ·  %2$s</string>
+    <string name="battery_guidance_title">Background battery settings</string>
+    <string name="battery_guidance_message">Power management may interrupt background monitoring, and continuous sensing uses battery. Changing battery settings may help, but Android and device-specific limits can still interrupt monitoring.</string>
+    <string name="battery_open_settings">Open battery settings</string>
+    <string name="battery_continue">Continue without changing</string>
+    <string name="battery_cancel">Cancel start</string>
+    <string name="battery_settings_unavailable_title">Battery settings unavailable</string>
+    <string name="battery_settings_unavailable_message">Open Android Settings, then Apps and ChopTorch to review its battery settings. The available options vary by device. You can continue with the current settings or cancel.</string>
+    <string name="battery_return_title">Confirm monitoring start</string>
+    <string name="battery_return_message">Android battery-optimization allowlist status: %1$s. This does not confirm an OEM unrestricted mode or guarantee uninterrupted monitoring. Start monitoring?</string>
+    <string name="battery_status_allowlisted">allowlisted</string>
+    <string name="battery_status_not_allowlisted">not allowlisted</string>
+    <string name="battery_confirm_start">Start monitoring</string>
+    <plurals name="double_chop_count">
+        <item quantity="one">%1$d double chop</item>
+        <item quantity="other">%1$d double chops</item>
+    </plurals>
+    <plurals name="other_movement_count">
+        <item quantity="one">%1$d other movement</item>
+        <item quantity="other">%1$d other movements</item>
+    </plurals>
 </resources>

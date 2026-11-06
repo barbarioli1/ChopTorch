@@ -2,12 +2,6 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
-    inputs:
-      shipping:
-        description: "Build with training/feedback/export disabled (requires the exported model asset)"
-        required: false
-        type: boolean
-        default: false
   push:
     branches: [main, master]
 
@@ -37,25 +31,29 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android platform API 36
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+        run: sdkmanager 'platforms/android-36' 'build-tools/35.0.0' 'platform-tools'
 
       - name: Test sensor fusion and gesture classifier
         run: bash tests/run-core-tests.sh
 
-      # Using the setup-gradle binary avoids relying on a downloaded gradle-wrapper.jar.
-      - name: Compile debug APK
-        shell: bash
-        run: |
-          if [[ "${{ inputs.shipping }}" == "true" ]]; then
-            gradle --no-daemon --stacktrace assembleDebug -Pshipping=true
-          else
-            gradle --no-daemon --stacktrace assembleDebug
-          fi
+      - name: Compile development debug APK
+        run: bash ./gradlew --no-daemon --stacktrace assembleDebug
 
-      - name: Upload installable debug APK
+      - name: Upload development debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: ChopTorch-debug-apk
+          name: ChopTorch-development-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Compile shipping debug APK
+        run: bash ./gradlew --no-daemon --stacktrace assembleDebug -Pshipping=true
+
+      - name: Upload shipping debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChopTorch-shipping-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
