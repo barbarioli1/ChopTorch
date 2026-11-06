@@ -5,7 +5,13 @@ local.properties
 *.iml
 *.apk
 .DS_Store
+*.jks
+*.keystore
+play-service-account*.json
+gha-creds-*.json
+test-results/
+
 # Gradle wrapper JAR is fetched on first run after verifying Gradle's official checksum.
 gradle/wrapper/gradle-wrapper.jar
-/test-results
 /docs/features
+

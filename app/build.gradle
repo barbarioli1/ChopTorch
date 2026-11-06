@@ -4,8 +4,55 @@ plugins {
 
 // Production is intentionally opt-in. The pretrained weights asset is mandatory in shipping mode.
 def shipping = providers.gradleProperty('shipping').map { it.toBoolean() }.getOrElse(false)
-if (shipping && !file('src/main/assets/choptorch_model.json').isFile()) {
-    throw new GradleException('Shipping requires app/src/main/assets/choptorch_model.json (exported from the training app).')
+def defaultVersionCode = 4
+def requestedVersionCode = providers.gradleProperty('versionCode').orNull
+def appVersionCode = requestedVersionCode == null ? defaultVersionCode : Integer.parseInt(requestedVersionCode)
+if (appVersionCode < defaultVersionCode) {
+    throw new GradleException("versionCode must be at least ${defaultVersionCode}.")
+}
+def uploadKeystorePath = providers.environmentVariable('ANDROID_UPLOAD_KEYSTORE_PATH').orNull
+def uploadKeystorePassword = providers.environmentVariable('ANDROID_UPLOAD_KEYSTORE_PASSWORD').orNull
+def uploadKeyAlias = providers.environmentVariable('ANDROID_UPLOAD_KEY_ALIAS').orNull
+def uploadKeyPassword = providers.environmentVariable('ANDROID_UPLOAD_KEY_PASSWORD').orNull
+def releaseSigningConfigured = [uploadKeystorePath, uploadKeystorePassword, uploadKeyAlias, uploadKeyPassword]
+        .every { it != null && !it.trim().isEmpty() }
+def shippingReleaseRequested = shipping && gradle.startParameter.taskNames.any {
+    it.toLowerCase().contains('release')
+}
+if (shippingReleaseRequested && !releaseSigningConfigured) {
+    throw new GradleException('Shipping release tasks require ANDROID_UPLOAD_KEYSTORE_PATH, ANDROID_UPLOAD_KEYSTORE_PASSWORD, ANDROID_UPLOAD_KEY_ALIAS, and ANDROID_UPLOAD_KEY_PASSWORD.')
+}
+if (shipping) {
+    def modelAsset = file('src/main/assets/choptorch_model.json')
+    if (!modelAsset.isFile()) {
+        throw new GradleException('Shipping requires app/src/main/assets/choptorch_model.json (exported from the training app).')
+    }
+    try {
+        def model = new groovy.json.JsonSlurper().parse(modelAsset)
+        if (!(model instanceof Map) || !(model.featureCount instanceof Number)
+                || model.featureCount.intValue() != 27) {
+            throw new GradleException('Shipping model asset must declare featureCount 27.')
+        }
+        def requireFiniteArray = { values, size, name ->
+            if (!(values instanceof List) || values.size() != size
+                    || !values.every { it instanceof Number && Double.isFinite(it.doubleValue()) }) {
+                throw new GradleException("Shipping model asset has invalid ${name}; expected ${size} finite numbers.")
+            }
+        }
+        if (!(model.w1 instanceof List) || model.w1.size() != 18) {
+            throw new GradleException('Shipping model asset must contain 18 w1 rows.')
+        }
+        model.w1.eachWithIndex { row, index -> requireFiniteArray(row, 27, "w1[${index}]") }
+        requireFiniteArray(model.b1, 18, 'b1')
+        requireFiniteArray(model.w2, 18, 'w2')
+        if (!(model.b2 instanceof Number) || !Double.isFinite(model.b2.doubleValue())) {
+            throw new GradleException('Shipping model asset must contain a finite b2 value.')
+        }
+    } catch (GradleException invalidModel) {
+        throw invalidModel
+    } catch (Exception invalidJson) {
+        throw new GradleException('Shipping model asset must be valid JSON.', invalidJson)
+    }
 }
 
 android {
@@ -23,13 +70,38 @@ android {
         if (!shipping) applicationIdSuffix '.devclassic'
         minSdk 26
         targetSdk 35
-        versionCode 4
+        versionCode appVersionCode
         versionName '2.2'
         buildConfigField 'boolean', 'ENABLE_TRAINING', shipping ? 'false' : 'true'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile file(uploadKeystorePath)
+                storePassword uploadKeystorePassword
+                keyAlias uploadKeyAlias
+                keyPassword uploadKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (releaseSigningConfigured) signingConfig signingConfigs.release
+        }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    androidTestImplementation 'androidx.test:core:1.6.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }

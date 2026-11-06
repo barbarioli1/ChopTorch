@@ -7,11 +7,21 @@ import java.util.ArrayList;
 public final class GestureDetector {
     public static final long WINDOW_MS = 1900;
     public static final double THRESHOLD = 0.82;
+    interface Scorer { double score(GestureFeatures.Result result); }
     private final MotionProcessor motion = new MotionProcessor();
     private final ArrayDeque<MotionSample> history = new ArrayDeque<>();
+    private final Scorer scorer;
     private long lastPredictionAt, lastTriggeredAt;
     private int consecutiveHits;
     private double latestScore;
+
+    public GestureDetector() {
+        this(null);
+    }
+
+    GestureDetector(Scorer scorer) {
+        this.scorer = scorer;
+    }
 
     public static final class Detection {
         public final double[] features;
@@ -45,7 +55,7 @@ public final class GestureDetector {
         if (window.size() <= 35 || sample.timeMs - window.get(0).timeMs <= 1550) return null;
         GestureFeatures.Result result = GestureFeatures.extract(window);
         if (result == null) return null;
-        latestScore = model.probability(result.values);
+        latestScore = scorer == null ? model.probability(result.values) : scorer.score(result);
         boolean pass = result.hasDoubleChopShape && latestScore >= THRESHOLD;
         consecutiveHits = pass ? consecutiveHits + 1 : 0;
         if (consecutiveHits < 2 || sample.timeMs - lastTriggeredAt < 1600) return null;
