@@ -1,0 +1,20 @@
+<resources>
+    <item name="screen_home" type="id" />
+    <item name="screen_settings" type="id" />
+    <item name="screen_detection_model" type="id" />
+    <item name="screen_training" type="id" />
+    <item name="screen_about" type="id" />
+    <item name="btn_open_settings" type="id" />
+    <item name="btn_home_monitoring" type="id" />
+    <item name="btn_manual_flashlight" type="id" />
+    <item name="row_detection_model" type="id" />
+    <item name="row_about" type="id" />
+    <item name="btn_open_training" type="id" />
+    <item name="btn_false_positive" type="id" />
+    <item name="model_status" type="id" />
+    <item name="feedback_status" type="id" />
+    <item name="btn_settings_back" type="id" />
+    <item name="btn_detection_back" type="id" />
+    <item name="btn_training_back" type="id" />
+    <item name="btn_about_back" type="id" />
+</resources>
