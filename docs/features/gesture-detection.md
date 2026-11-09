@@ -44,7 +44,8 @@ The detector exposes the latest score for diagnostics and returns a structured d
 
 `GestureDetector` provides:
 
-- `reset()` to clear streaming state.
+- `reset()` to clear streaming state, including the activation cooldown.
+- `resetForRecovery()` to drop sensor history after a stale or interrupted sensor stream while keeping the activation cooldown. The sensor guard and service integration are covered in [screen-locked sensor delivery reliability](background-monitoring.md#screen-locked-sensor-delivery-reliability).
 - `onGyroscope(x, y, z)` to enqueue the latest gyroscope sample.
 - `onAccelerometer(timestamp, x, y, z, model)` to process an accelerometer event and possibly return a detection.
 - `latestScore()` for the most recent model probability.
@@ -57,11 +58,12 @@ This boundary is deliberately independent of Android UI and service code, which 
 - Insufficient history: no prediction is emitted until the window has enough data.
 - Invalid shape: the score may be recorded for diagnostics, but no torch action occurs.
 - Cooldown active: the result is suppressed without resetting the entire sensor stream.
+- Stale sensor delivery: `GestureDetectionService` checks each accelerometer and gyroscope timestamp before passing it to the detector, resets history after stale or interrupted delivery, and applies a wall-clock toggle cooldown. A steady delay eventually fails open because it cannot be distinguished from a sensor clock-base mismatch. See [background monitoring](background-monitoring.md#screen-locked-sensor-delivery-reliability); device behavior remains unverified.
 - Torch unavailable or permission denied: the service must not treat the attempted toggle as a successful state change.
 
 ## Verification
 
-`CoreSmokeTest` covers synthetic single- and double-chop signals, feature dimensionality, trained probabilities, stationary gravity reconstruction, peak-pair gaps below, at, and above the 190 ms and 1,100 ms limits, and sensor-fusion resets after backward timestamps and gaps above 500 ms. `StreamingDetectorTest` exercises the current raw sensor event API and verifies seeded double-chop detections, single-chop rejection, null-model and short-history rejection, deterministic reset, a non-positive score interrupting consecutive hits, and acceptance at the exact 1,600 ms cooldown boundary. Detector-history behavior across timestamp discontinuities and real-device recognition remain unverified.
+`CoreSmokeTest` covers synthetic single- and double-chop signals, feature dimensionality, trained probabilities, stationary gravity reconstruction, peak-pair gaps below, at, and above the 190 ms and 1,100 ms limits, and sensor-fusion resets after backward timestamps and gaps above 500 ms. `StreamingDetectorTest` exercises the current raw sensor event API and verifies seeded double-chop detections, single-chop rejection, null-model and short-history rejection, deterministic reset, a non-positive score interrupting consecutive hits, and acceptance at the exact 1,600 ms cooldown boundary. `SensorDeliveryGuardTest` covers normal-stream equivalence, replay rejection, recovery, fail-open rules, and wall-clock cooldown integrity. Physical sensor delivery and real-device recognition remain unverified.
 
 ## Action plan
 

@@ -16,6 +16,8 @@ import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.SystemClock;
+import android.util.Log;
 
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +31,9 @@ public final class GestureDetectionService extends Service implements SensorEven
     public static final String ACTION_FALSE_POSITIVE = "com.example.choptorch.FALSE_POSITIVE";
     private static final int NOTICE_ID = 1902;
     private static final String CHANNEL = "gesture_detector";
+    private static final String TAG = "ChopTorch/Sensors";
+    private static final boolean DIAGNOSTICS = BuildConfig.ENABLE_TRAINING;
+    private static final long STATS_INTERVAL_NS = 5_000_000_000L;
     private static volatile boolean running;
     private static volatile double latestScore;
     private static volatile String lastError = "";
@@ -40,6 +45,18 @@ public final class GestureDetectionService extends Service implements SensorEven
     private TorchController torch;
     private GestureStore store;
     private PowerManager.WakeLock wakeLock;
+    private SensorDeliveryGuard accelGuard = new SensorDeliveryGuard();
+    private SensorDeliveryGuard gyroGuard = new SensorDeliveryGuard();
+    private SensorRecoveryCoordinator recovery = new SensorRecoveryCoordinator();
+    private SensorTimingStats accelStats = new SensorTimingStats("accel", STATS_INTERVAL_NS);
+    private SensorTimingStats gyroStats = new SensorTimingStats("gyro", STATS_INTERVAL_NS);
+    private long lastAccelTimestampNs, lastGyroTimestampNs, lastDetectorResetNs;
+    private long lastPredictionEvaluatedAtNs, lastPositiveEvaluatedAtNs;
+    private long lastPositiveEventMs;
+    private long freshHistoryStartNs;
+    private int freshAccelSamples;
+    private boolean freshHistoryReadyLogged;
+    private float latestGx, latestGy, latestGz;
 
     public static boolean isRunning() { return running; }
     public static double getScore() { return latestScore; }
@@ -98,6 +115,19 @@ public final class GestureDetectionService extends Service implements SensorEven
             torch.initializeAfterPermission();
             if (!torch.hasFlash()) throw new IllegalStateException("Flashlight unavailable");
             detector.reset();
+            accelGuard = new SensorDeliveryGuard();
+            gyroGuard = new SensorDeliveryGuard();
+            recovery = new SensorRecoveryCoordinator();
+            accelStats = new SensorTimingStats("accel", STATS_INTERVAL_NS);
+            gyroStats = new SensorTimingStats("gyro", STATS_INTERVAL_NS);
+            lastAccelTimestampNs = lastGyroTimestampNs = 0;
+            latestGx = latestGy = latestGz = 0;
+            lastDetectorResetNs = SystemClock.elapsedRealtimeNanos();
+            lastPredictionEvaluatedAtNs = lastPositiveEvaluatedAtNs = lastPositiveEventMs = 0;
+            freshHistoryStartNs = 0;
+            freshAccelSamples = 0;
+            freshHistoryReadyLogged = false;
+            if (DIAGNOSTICS) logSensorInventory();
             boolean acc = manager.registerListener(this, accelerometer, 20000);
             boolean gyro = manager.registerListener(this, gyroscope, 20000);
             if (!acc || !gyro) throw new IllegalStateException("Sensor registration failed");
@@ -142,22 +172,177 @@ public final class GestureDetectionService extends Service implements SensorEven
 
     @Override public void onSensorChanged(SensorEvent event) {
         if (!running) return;
-        if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
-            detector.onGyroscope(event.values[0], event.values[1], event.values[2]);
-        } else if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            GestureDetector.Detection match = detector.onAccelerometer(event.timestamp,
-                    event.values[0], event.values[1], event.values[2], store.getModel());
-            latestScore = detector.latestScore();
-            if (match != null) {
-                try {
-                    torch.toggle();
-                    if (torch.isOn()) store.rememberTorchOn(match.features, match.score);
-                    updateNotification();
-                } catch (Exception failure) {
-                    lastError = "Torch unavailable: " + failure.getMessage();
-                }
+        boolean gyro = event.sensor.getType() == Sensor.TYPE_GYROSCOPE;
+        if (!gyro && event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
+        long arrivalNs = SystemClock.elapsedRealtimeNanos();
+        SensorDeliveryGuard guard = gyro ? gyroGuard : accelGuard;
+        SensorDeliveryGuard.Decision decision = guard.check(event.timestamp, arrivalNs);
+        String summary = DIAGNOSTICS
+            ? (gyro ? gyroStats : accelStats).record(event.timestamp, arrivalNs, decision) : null;
+        if (summary != null) {
+            long freshHistoryMs = freshHistoryStartNs == 0 ? 0
+                : Math.max(0, (event.timestamp - freshHistoryStartNs) / 1_000_000L);
+            Log.i(TAG, summary + String.format(Locale.US,
+                " recoveryEpisodes=%d recoveryReason=%s sinceResetMs=%.1f freshHistoryMs=%d "
+                        + "predictionEventMs=%d predictionEvaluatedAtNs=%d "
+                        + "positiveEventMs=%d positiveEvaluatedAtNs=%d %s",
+                recovery.episodeCount(), recovery.lastReason(),
+                (arrivalNs - lastDetectorResetNs) / 1e6, freshHistoryMs,
+                    detector.lastPredictionTimeMs(), lastPredictionEvaluatedAtNs,
+                    detector.lastPositiveMatchTimeMs(), lastPositiveEvaluatedAtNs, powerState()));
+        }
+        if (decision == SensorDeliveryGuard.Decision.DROP_STALE
+            || decision == SensorDeliveryGuard.Decision.DROP_FUTURE
+            || decision == SensorDeliveryGuard.Decision.DROP_INVALID_TIMESTAMP) {
+            String reason = decision == SensorDeliveryGuard.Decision.DROP_STALE
+                ? (gyro ? "STALE_GYRO" : "STALE_ACCEL")
+                : decision == SensorDeliveryGuard.Decision.DROP_FUTURE
+                    ? (gyro ? "FUTURE_GYRO" : "FUTURE_ACCEL")
+                    : (gyro ? "INVALID_GYRO_TIMESTAMP" : "INVALID_ACCEL_TIMESTAMP");
+            startRecovery(reason, arrivalNs, arrivalNs - event.timestamp, 0);
+            return;
+        }
+        if (decision != SensorDeliveryGuard.Decision.ACCEPT) return;
+
+        long gapNs = guard.consumeGapNs();
+        long otherTimestampNs = gyro ? lastAccelTimestampNs : lastGyroTimestampNs;
+        long crossSensorGapNs = otherTimestampNs == 0 ? 0 : Math.abs(event.timestamp - otherTimestampNs);
+        String recoveryReason = gapNs > SensorDeliveryGuard.MAX_GAP_NS
+                ? (gyro ? "GAP_GYRO" : "GAP_ACCEL")
+                : crossSensorGapNs > SensorDeliveryGuard.MAX_GAP_NS
+                        ? (gyro ? "ACCEL_NOT_FRESH" : "GYRO_NOT_FRESH") : null;
+        if (recoveryReason != null) {
+            boolean started = startRecovery(recoveryReason, arrivalNs, 0,
+                Math.max(gapNs, crossSensorGapNs));
+            if (started && otherTimestampNs > 0
+                    && crossSensorGapNs <= SensorDeliveryGuard.MAX_GAP_NS) {
+                recovery.recordFresh(gyro ? SensorRecoveryCoordinator.Sensor.ACCELEROMETER
+                        : SensorRecoveryCoordinator.Sensor.GYROSCOPE, otherTimestampNs);
             }
         }
+
+        if (gyro) {
+            lastGyroTimestampNs = event.timestamp;
+            latestGx = event.values[0];
+            latestGy = event.values[1];
+            latestGz = event.values[2];
+        } else {
+            lastAccelTimestampNs = event.timestamp;
+        }
+        if (recovery.isRecovering()) {
+            boolean resumed = recovery.recordFresh(gyro
+                    ? SensorRecoveryCoordinator.Sensor.GYROSCOPE
+                    : SensorRecoveryCoordinator.Sensor.ACCELEROMETER, event.timestamp);
+            if (!resumed) return;
+            if (DIAGNOSTICS) {
+                Log.i(TAG, "RECOVERY_RESUMED accelFresh=true gyroFresh=true reason="
+                        + recovery.lastReason() + " episodes=" + recovery.episodeCount());
+            }
+        }
+        if (gyro) {
+            detector.onGyroscope(latestGx, latestGy, latestGz);
+            return;
+        }
+        detector.onGyroscope(latestGx, latestGy, latestGz);
+        long previousPredictionMs = detector.lastPredictionTimeMs();
+        long previousPositiveMs = detector.lastPositiveMatchTimeMs();
+        GestureDetector.Detection match = detector.onAccelerometer(event.timestamp,
+                event.values[0], event.values[1], event.values[2], store.getModel());
+        if (detector.lastPredictionTimeMs() != previousPredictionMs) {
+            lastPredictionEvaluatedAtNs = SystemClock.elapsedRealtimeNanos();
+        }
+        if (detector.lastPositiveMatchTimeMs() != previousPositiveMs) {
+            lastPositiveEventMs = detector.lastPositiveMatchTimeMs();
+            lastPositiveEvaluatedAtNs = SystemClock.elapsedRealtimeNanos();
+        }
+        recordFreshHistory(event.timestamp);
+        latestScore = detector.latestScore();
+        if (match == null) return;
+        long recognizedNs = SystemClock.elapsedRealtimeNanos();
+        if (DIAGNOSTICS) {
+            Log.i(TAG, String.format(Locale.US,
+                "DETECTION score=%.3f detectionEventNs=%d callbackArrivalNs=%d recognitionCompleteNs=%d "
+                            + "predictionEventMs=%d predictionEvaluatedAtNs=%d "
+                    + "positiveEventMs=%d positiveEvaluatedAtNs=%d %s",
+                match.score, event.timestamp, arrivalNs, recognizedNs, detector.lastPredictionTimeMs(),
+                        lastPredictionEvaluatedAtNs, lastPositiveEventMs,
+                lastPositiveEvaluatedAtNs, powerState()));
+        }
+        long toggleRequestNs = SystemClock.elapsedRealtimeNanos();
+        try {
+            torch.toggle();
+            if (DIAGNOSTICS) {
+            Log.i(TAG, "TORCH_REQUEST detectionEventNs=" + event.timestamp
+                + " toggleRequestNs=" + toggleRequestNs
+                + " cameraApiReturnNs=" + SystemClock.elapsedRealtimeNanos()
+                + " requestedOn=" + torch.isOn());
+            }
+            if (torch.isOn()) store.rememberTorchOn(match.features, match.score);
+            updateNotification();
+        } catch (Exception failure) {
+            lastError = "Torch unavailable: " + failure.getMessage();
+            Log.e(TAG, lastError + " toggleRequestNs=" + toggleRequestNs, failure);
+        }
+    }
+
+    private boolean startRecovery(String reason, long nowNs, long ageNs, long gapNs) {
+        if (!recovery.begin(reason)) return false;
+        detector.resetForRecovery();
+        lastDetectorResetNs = nowNs;
+        lastPredictionEvaluatedAtNs = lastPositiveEvaluatedAtNs = lastPositiveEventMs = 0;
+        freshHistoryStartNs = 0;
+        freshAccelSamples = 0;
+        freshHistoryReadyLogged = false;
+        latestScore = 0;
+        Log.w(TAG, String.format(Locale.US,
+                "RECOVERY_START reason=%s ageMs=%.1f gapMs=%.1f episode=%d; "
+                        + "persistent timestamp delay may prevent reliable continuous recognition %s",
+                reason, ageNs / 1e6, gapNs / 1e6, recovery.episodeCount(), powerState()));
+        return true;
+    }
+
+    private void recordFreshHistory(long eventNs) {
+        if (freshHistoryStartNs == 0) freshHistoryStartNs = eventNs;
+        freshAccelSamples++;
+        long durationMs = (eventNs - freshHistoryStartNs) / 1_000_000L;
+        if (!freshHistoryReadyLogged && freshAccelSamples > 35 && durationMs > 1550) {
+            freshHistoryReadyLogged = true;
+            if (DIAGNOSTICS && recovery.episodeCount() > 0) {
+                Log.i(TAG, "RECOVERY_READY freshHistoryMs=" + durationMs
+                        + " sinceResetMs=" + ((SystemClock.elapsedRealtimeNanos() - lastDetectorResetNs) / 1e6));
+            }
+        }
+    }
+
+    private String powerState() {
+        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+        return String.format(Locale.US, "interactive=%b deviceIdle=%b powerSave=%b",
+                power.isInteractive(), power.isDeviceIdleMode(), power.isPowerSaveMode());
+    }
+
+    private void logSensorInventory() {
+        describeSensor("accelerometer(default)", manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER));
+        describeSensor("accelerometer(wakeUp)", manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER, true));
+        describeSensor("gyroscope(default)", manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE));
+        describeSensor("gyroscope(wakeUp)", manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE, true));
+        describeSensor("significantMotion", manager.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION));
+        describeSensor("motionDetect", manager.getDefaultSensor(Sensor.TYPE_MOTION_DETECT));
+        for (Sensor sensor : manager.getSensorList(Sensor.TYPE_ALL)) {
+            String type = sensor.getStringType();
+            if (type != null && type.contains("pick_up")) describeSensor("pickUp", sensor);
+        }
+    }
+
+    private static void describeSensor(String label, Sensor sensor) {
+        if (sensor == null) {
+            Log.i(TAG, label + ": unavailable");
+            return;
+        }
+        Log.i(TAG, String.format(Locale.US,
+                "%s: name=%s vendor=%s wakeUp=%b reportingMode=%d minDelayUs=%d maxDelayUs=%d fifoMax=%d fifoReserved=%d powerMa=%.3f",
+                label, sensor.getName(), sensor.getVendor(), sensor.isWakeUpSensor(), sensor.getReportingMode(),
+                sensor.getMinDelay(), sensor.getMaxDelay(), sensor.getFifoMaxEventCount(),
+                sensor.getFifoReservedEventCount(), sensor.getPower()));
     }
 
     private Notification notification() {

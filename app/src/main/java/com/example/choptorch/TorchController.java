@@ -6,26 +6,45 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
 
 /** Camera2 torch control with a callback that follows external quick-settings changes. */
 public final class TorchController {
+    private static final String TAG = "ChopTorch/Sensors";
     public interface Listener { void onTorchState(boolean on); }
     private final CameraManager manager;
     private final Listener listener;
     private String flashCameraId;
     private boolean on;
     private boolean subscribed;
+    private static boolean hasConfirmedTorchState;
+    private static boolean lastConfirmedTorchOn;
+    private static boolean torchUnavailable;
+    private static long confirmedTorchOnSinceNs;
 
     private final CameraManager.TorchCallback callback = new CameraManager.TorchCallback() {
         @Override public void onTorchModeChanged(String id, boolean enabled) {
             if (id.equals(flashCameraId)) {
                 on = enabled;
+                logConfirmedTorchState(enabled);
                 listener.onTorchState(enabled);
             }
         }
         @Override public void onTorchModeUnavailable(String id) {
             if (id.equals(flashCameraId)) {
                 on = false;
+                if (BuildConfig.ENABLE_TRAINING) {
+                    synchronized (TorchController.class) {
+                        if (!torchUnavailable) {
+                            Log.w(TAG, "TORCH_STATE_UNAVAILABLE atNs=" + SystemClock.elapsedRealtimeNanos()
+                                    + " lastConfirmedOn=" + (hasConfirmedTorchState && lastConfirmedTorchOn));
+                        }
+                        torchUnavailable = true;
+                        hasConfirmedTorchState = false;
+                        confirmedTorchOnSinceNs = 0;
+                    }
+                }
                 listener.onTorchState(false);
             }
         }
@@ -59,6 +78,26 @@ public final class TorchController {
 
     public boolean hasFlash() { return flashCameraId != null; }
     public boolean isOn() { return on; }
+
+    private static synchronized void logConfirmedTorchState(boolean enabled) {
+        if (!BuildConfig.ENABLE_TRAINING
+                || (hasConfirmedTorchState && lastConfirmedTorchOn == enabled)) return;
+        torchUnavailable = false;
+        long nowNs = SystemClock.elapsedRealtimeNanos();
+        if (enabled) {
+            confirmedTorchOnSinceNs = nowNs;
+            Log.i(TAG, "TORCH_STATE_CONFIRMED state=ON atNs=" + nowNs);
+        } else {
+            String duration = confirmedTorchOnSinceNs == 0 ? "unknown"
+                    : String.format(java.util.Locale.US, "%.1f",
+                            (nowNs - confirmedTorchOnSinceNs) / 1e6);
+            Log.i(TAG, "TORCH_STATE_CONFIRMED state=OFF atNs=" + nowNs
+                    + " priorOnDurationMs=" + duration);
+            confirmedTorchOnSinceNs = 0;
+        }
+        hasConfirmedTorchState = true;
+        lastConfirmedTorchOn = enabled;
+    }
 
     public void toggle() throws CameraAccessException {
         if (flashCameraId == null) throw new IllegalStateException("No flashlight found");

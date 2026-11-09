@@ -11,7 +11,7 @@ public final class GestureDetector {
     private final MotionProcessor motion = new MotionProcessor();
     private final ArrayDeque<MotionSample> history = new ArrayDeque<>();
     private final Scorer scorer;
-    private long lastPredictionAt, lastTriggeredAt;
+    private long lastPredictionAt, lastPositiveMatchAt, lastTriggeredAt;
     private int consecutiveHits;
     private double latestScore;
 
@@ -36,7 +36,18 @@ public final class GestureDetector {
         motion.reset();
         history.clear();
         lastPredictionAt = 0;
+        lastPositiveMatchAt = 0;
         lastTriggeredAt = 0;
+        consecutiveHits = 0;
+        latestScore = 0;
+    }
+
+    /** Drops sensor history after a delivery interruption but keeps the activation cooldown. */
+    public void resetForRecovery() {
+        motion.reset();
+        history.clear();
+        lastPredictionAt = 0;
+        lastPositiveMatchAt = 0;
         consecutiveHits = 0;
         latestScore = 0;
     }
@@ -57,6 +68,7 @@ public final class GestureDetector {
         if (result == null) return null;
         latestScore = scorer == null ? model.probability(result.values) : scorer.score(result);
         boolean pass = result.hasDoubleChopShape && latestScore >= THRESHOLD;
+        if (pass) lastPositiveMatchAt = sample.timeMs;
         consecutiveHits = pass ? consecutiveHits + 1 : 0;
         if (consecutiveHits < 2 || sample.timeMs - lastTriggeredAt < 1600) return null;
         consecutiveHits = 0;
@@ -65,4 +77,6 @@ public final class GestureDetector {
     }
 
     public double latestScore() { return latestScore; }
+    public long lastPredictionTimeMs() { return lastPredictionAt; }
+    public long lastPositiveMatchTimeMs() { return lastPositiveMatchAt; }
 }
