@@ -186,6 +186,24 @@ public final class GestureStore {
         catch (JSONException e) { throw new IllegalStateException(e); }
     }
 
+    public synchronized String exportExamplesJson() {
+        if (!BuildConfig.ENABLE_TRAINING) throw new IllegalStateException("Training is disabled");
+        try {
+            JSONObject json = new JSONObject();
+            json.put("formatVersion", 1);
+            json.put("featureCount", GestureFeatures.COUNT);
+            JSONArray saved = new JSONArray();
+            for (TinyNeuralNet.Example example : examples) {
+                JSONObject item = new JSONObject();
+                item.put("positive", example.positive);
+                item.put("x", asJson(example.features));
+                saved.put(item);
+            }
+            json.put("examples", saved);
+            return json.toString(2);
+        } catch (JSONException e) { throw new IllegalStateException(e); }
+    }
+
     public synchronized List<TinyNeuralNet.Example> getExamples() {
         return new ArrayList<>(examples);
     }

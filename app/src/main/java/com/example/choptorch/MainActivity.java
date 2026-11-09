@@ -42,6 +42,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private static final int EXPORT_REQUEST = 32;
     private static final int NOTIFICATION_REQUEST = 33;
     private static final int BATTERY_SETTINGS_REQUEST = 34;
+    private static final int EXPORT_EXAMPLES_REQUEST = 35;
     private static final String STATE_MONITORING_START = "monitoring_start_state";
     private static final String STATE_BATTERY_ALLOWLISTED = "battery_allowlisted_on_return";
     private static final String STATE_PERMISSION_ACTION = "monitoring_permission_action";
@@ -249,6 +250,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
         trainButton = button("Train neural network", true, this::beginTraining);
         trainingCard.addView(trainButton);
         trainingCard.addView(button("Export weights as JSON", false, this::exportModel));
+        trainingCard.addView(button("Export examples as JSON", false, this::exportExamples));
         trainingCard.addView(button("Erase all examples and model", false, this::confirmErase));
         trainingCard.addView(spacedText("To ship without a training page: put the exported JSON into app/src/main/assets/choptorch_model.json and build with -Pshipping=true.", 14, MUTED, 12));
         updateLabels();
@@ -371,6 +373,15 @@ public final class MainActivity extends Activity implements SensorEventListener 
         startActivityForResult(picker, EXPORT_REQUEST);
     }
 
+    private void exportExamples() {
+        if (!BuildConfig.ENABLE_TRAINING) return;
+        Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("application/json");
+        picker.putExtra(Intent.EXTRA_TITLE, "choptorch_seed_examples.json");
+        startActivityForResult(picker, EXPORT_EXAMPLES_REQUEST);
+    }
+
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == BATTERY_SETTINGS_REQUEST) {
@@ -384,13 +395,17 @@ public final class MainActivity extends Activity implements SensorEventListener 
             if (resumed) showSettingsReturnConfirmation();
             return;
         }
-        if (requestCode != EXPORT_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if ((requestCode != EXPORT_REQUEST && requestCode != EXPORT_EXAMPLES_REQUEST)
+                || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
             if (out == null) throw new IllegalStateException("Could not open destination");
-            out.write(store.exportModelJson().getBytes(StandardCharsets.UTF_8));
+            boolean exportingExamples = requestCode == EXPORT_EXAMPLES_REQUEST;
+            String json = exportingExamples ? store.exportExamplesJson() : store.exportModelJson();
+            out.write(json.getBytes(StandardCharsets.UTF_8));
             out.flush();
-            showToast("Neural-network weights exported as JSON.");
+            showToast(exportingExamples ? "Training examples exported as JSON."
+                    : "Neural-network weights exported as JSON.");
         } catch (Exception failure) { showToast("Export failed: " + failure.getMessage()); }
     }
 
