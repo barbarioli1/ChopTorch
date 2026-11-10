@@ -60,6 +60,7 @@ jobs:
           ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          CHOPTORCH_MODEL_JSON: ${{ secrets.CHOPTORCH_MODEL_JSON }}
           GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
         run: |
@@ -68,6 +69,7 @@ jobs:
           test -n "$ANDROID_UPLOAD_KEYSTORE_PASSWORD" || { echo "::error::Missing ANDROID_UPLOAD_KEYSTORE_PASSWORD secret"; exit 1; }
           test -n "$ANDROID_UPLOAD_KEY_ALIAS" || { echo "::error::Missing ANDROID_UPLOAD_KEY_ALIAS secret"; exit 1; }
           test -n "$ANDROID_UPLOAD_KEY_PASSWORD" || { echo "::error::Missing ANDROID_UPLOAD_KEY_PASSWORD secret"; exit 1; }
+          test -n "$CHOPTORCH_MODEL_JSON" || { echo "::error::Missing CHOPTORCH_MODEL_JSON repository secret"; exit 1; }
           test -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" || { echo "::error::Missing GCP_WORKLOAD_IDENTITY_PROVIDER environment variable"; exit 1; }
           test -n "$GCP_SERVICE_ACCOUNT" || { echo "::error::Missing GCP_SERVICE_ACCOUNT environment variable"; exit 1; }
 
@@ -79,6 +81,13 @@ jobs:
           umask 077
           printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/choptorch-upload-key.jks"
           echo "ANDROID_UPLOAD_KEYSTORE_PATH=$RUNNER_TEMP/choptorch-upload-key.jks" >> "$GITHUB_ENV"
+
+      - name: Restore private shipping model
+        env:
+          CHOPTORCH_MODEL_JSON: ${{ secrets.CHOPTORCH_MODEL_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$CHOPTORCH_MODEL_JSON" > app/src/main/assets/choptorch_model.json
 
       - name: Build signed shipping bundle
         env:

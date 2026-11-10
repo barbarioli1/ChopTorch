@@ -353,10 +353,8 @@ public final class GestureDetectionService extends Service implements SensorEven
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification.Builder builder = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
-                .setContentTitle("ChopTorch · double-chop listening")
-                .setContentText(store.isModelCurrent()
-                        ? String.format(Locale.US, "Monitoring IMU · confidence %.0f%%", latestScore * 100)
-                        : "Retraining after feedback…")
+                .setContentTitle("ChopTorch")
+                .setContentText("Monitoring flashlight gesture")
                 .setOngoing(true)
                 .setContentIntent(openPending)
                 .addAction(android.R.drawable.ic_media_pause, "Stop", stopPending);

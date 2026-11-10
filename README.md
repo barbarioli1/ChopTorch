@@ -40,8 +40,23 @@ exported anything you want to keep.
 
 ## Shipping mode
 
-Export any newly trained model from the development app and replace
-`app/src/main/assets/choptorch_model.json` in the source. Run the workflow with
+For GitHub builds, add repository Actions secrets named `CHOPTORCH_MODEL_JSON`
+and `CHOPTORCH_SEED_EXAMPLES_JSON`. Set them from the local files with GitHub CLI:
+
+```powershell
+Get-Content -Raw 'app/src/main/assets/choptorch_model.json' | gh secret set CHOPTORCH_MODEL_JSON
+Get-Content -Raw 'app/trainingAssets/choptorch_seed_examples.json' | gh secret set CHOPTORCH_SEED_EXAMPLES_JSON
+```
+
+The workflows restore these ignored files only on the runner. APK artifacts are
+uploaded only when the repository is private. The model must still be bundled
+inside the app to run offline, so someone with the APK can extract its weights;
+this protects the source repository and public workflow artifacts, not the model
+inside a distributed binary. Previously committed files also remain in Git
+history until that history is explicitly rewritten.
+
+Export any newly trained model locally, then update the `CHOPTORCH_MODEL_JSON`
+secret before publishing. Run the workflow with
 `shipping` checked (or `gradle assembleDebug -Pshipping=true`) to disable
 training, feedback, and export; only the trained weights are shipped. Shipping
 uses `com.example.choptorch` and may conflict with installed v1, so back up

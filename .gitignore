@@ -15,3 +15,9 @@ test-results/
 gradle/wrapper/gradle-wrapper.jar
 /docs/features
 
+# Private model weights and training samples; keep local or restore from Actions secrets.
+/choptorch_model.json
+/choptorch_training_examples_backup.json
+/app/src/main/assets/choptorch_model*.json
+/app/trainingAssets/*.json
+

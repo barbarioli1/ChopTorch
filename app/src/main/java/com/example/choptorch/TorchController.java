@@ -13,11 +13,15 @@ import android.util.Log;
 public final class TorchController {
     private static final String TAG = "ChopTorch/Sensors";
     public interface Listener { void onTorchState(boolean on); }
+    private final Context appContext;
     private final CameraManager manager;
     private final Listener listener;
     private String flashCameraId;
     private boolean on;
     private boolean subscribed;
+    private boolean hasReportedCameraState;
+    private boolean lastReportedCameraState;
+    private Boolean pendingFeedbackState;
     private static boolean hasConfirmedTorchState;
     private static boolean lastConfirmedTorchOn;
     private static boolean torchUnavailable;
@@ -26,14 +30,22 @@ public final class TorchController {
     private final CameraManager.TorchCallback callback = new CameraManager.TorchCallback() {
         @Override public void onTorchModeChanged(String id, boolean enabled) {
             if (id.equals(flashCameraId)) {
+                boolean changed = hasReportedCameraState && lastReportedCameraState != enabled;
+                boolean matchesRequest = pendingFeedbackState != null && pendingFeedbackState == enabled;
+                if (matchesRequest) pendingFeedbackState = null;
+                hasReportedCameraState = true;
+                lastReportedCameraState = enabled;
                 on = enabled;
                 logConfirmedTorchState(enabled);
+                if (changed && matchesRequest) VibrationFeedback.confirmTorchState(appContext, enabled);
                 listener.onTorchState(enabled);
             }
         }
         @Override public void onTorchModeUnavailable(String id) {
             if (id.equals(flashCameraId)) {
                 on = false;
+                hasReportedCameraState = false;
+                pendingFeedbackState = null;
                 if (BuildConfig.ENABLE_TRAINING) {
                     synchronized (TorchController.class) {
                         if (!torchUnavailable) {
@@ -51,7 +63,8 @@ public final class TorchController {
     };
 
     public TorchController(Context context, Listener listener) {
-        manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+        appContext = context.getApplicationContext();
+        manager = (CameraManager) appContext.getSystemService(Context.CAMERA_SERVICE);
         this.listener = listener;
     }
 
@@ -104,7 +117,7 @@ public final class TorchController {
         // Remember the requested state before calling the camera service. Reading
         // and negating `on` again after setTorchMode() can race with its callback.
         boolean desired = !on;
-        manager.setTorchMode(flashCameraId, desired);
+        requestTorchState(desired);
         on = desired;
         listener.onTorchState(desired);
     }
@@ -112,9 +125,19 @@ public final class TorchController {
     /** Force OFF after a mistaken activation; does not rely on callback timing. */
     public void turnOff() throws CameraAccessException {
         if (flashCameraId == null) throw new IllegalStateException("No flashlight found");
-        manager.setTorchMode(flashCameraId, false);
+        requestTorchState(false);
         on = false;
         listener.onTorchState(false);
+    }
+
+    private void requestTorchState(boolean desired) throws CameraAccessException {
+        pendingFeedbackState = desired;
+        try {
+            manager.setTorchMode(flashCameraId, desired);
+        } catch (CameraAccessException | RuntimeException failure) {
+            pendingFeedbackState = null;
+            throw failure;
+        }
     }
 
     public void release() {
