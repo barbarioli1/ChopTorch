@@ -2,6 +2,7 @@
 .idea/
 **/build/
 local.properties
+.env
 *.iml
 *.apk
 .DS_Store
@@ -21,3 +22,5 @@ gradle/wrapper/gradle-wrapper.jar
 /app/src/main/assets/choptorch_model*.json
 /app/trainingAssets/*.json
 
+docs/publish-to-google-play-tutorial.md
+docs/google-play-shipping-checklist.md

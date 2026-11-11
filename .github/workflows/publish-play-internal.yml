@@ -109,7 +109,7 @@ jobs:
         run: >-
           fastlane supply
           --aab app/build/outputs/bundle/release/app-release.aab
-          --package_name com.example.choptorch
+          --package_name com.barbarioli1.choptorch
           --track internal
           --release_status completed
           --json_key "$GOOGLE_APPLICATION_CREDENTIALS"

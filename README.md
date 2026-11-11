@@ -59,8 +59,13 @@ Export any newly trained model locally, then update the `CHOPTORCH_MODEL_JSON`
 secret before publishing. Run the workflow with
 `shipping` checked (or `gradle assembleDebug -Pshipping=true`) to disable
 training, feedback, and export; only the trained weights are shipped. Shipping
-uses `com.example.choptorch` and may conflict with installed v1, so back up
-its data and use a stable release signing key before distributing the app.
+uses `com.barbarioli1.choptorch`, separate from existing `com.example.choptorch`
+installs. Treat them as separate apps; saved data does not transfer between them.
+Use a stable release signing key before distributing the app.
+
+## Google Play publishing
+
+Follow the [Google Play publishing tutorial](docs/publish-to-google-play-tutorial.md) for the full setup. The optional `scripts/setup-github-publish.ps1` configures GitHub secrets and, when requested, Google Cloud Workload Identity Federation from local `.env` settings. Keep `.env` and the upload keystore private. Publishing requires the secure workflow to be merged to `main`; Play Console account setup, service-account invitation, first upload, listing, and policy forms remain manual.
 
 ## Checks
 
