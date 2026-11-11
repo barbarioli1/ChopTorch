@@ -178,17 +178,36 @@ Remove-Item Env:ANDROID_UPLOAD_KEYSTORE_PATH, Env:ANDROID_UPLOAD_KEY_ALIAS, Env:
 - **Free or paid:** choose carefully. A free app cannot later become paid.
 - Accept the declarations.
 
-**Why:** The package name `com.example.choptorch` ties your uploads to this entry. See the package name note below.
+**Why:** The package name `com.barbarioli1.choptorch` identifies this app in Google Play. It must match the shipping bundle uploaded from this repository.
 
 **Check:** The app appears in your list and has a dashboard with "Set up your app" tasks.
 
-> **Package name warning.** `com.example.*` is a placeholder-style namespace. Google Play requires a unique application ID and it can **never be changed** after you publish. If you want a name you own, such as one based on a domain you control, change `applicationId` in `app/build.gradle` **before** the first upload. If you keep `com.example.choptorch`, confirm Play Console accepts it when you upload. This is the last cheap moment to decide.
+> **Package name.** The shipping application ID is configured as `com.barbarioli1.choptorch`. Confirm this is the intended permanent ID before the first AAB upload. If this Play Console entry already has an uploaded bundle, its package name is already fixed and must match exactly.
 
 ---
 
 ## Part 4. Connect GitHub to Google Play
 
 The workflow `.github/workflows/publish-play-internal.yml` builds a signed bundle and uploads it. It needs your upload key, plus permission to talk to Google Play. It uses **Workload Identity Federation**, which means GitHub proves its identity to Google and no long-lived Google key file is stored.
+
+### Optional: Configure GitHub and Google Cloud from PowerShell
+
+The repository includes `scripts/setup-github-publish.ps1` for the repeatable setup steps in this part. It reads local paths and non-secret settings from `.env`, streams model/sample data to GitHub Actions secrets without displaying it, prompts for signing passwords without echo, and can configure the Google Cloud identity pool and GitHub environment values.
+
+1. Copy `.env.example` to `.env` and review the repository, branch, version code, local model/sample paths, keystore path, alias, and Google Cloud identifiers. `.env` is ignored by Git; `.env.example` is safe to commit.
+2. Install GitHub CLI and sign in with `gh auth login`. For Google Cloud setup, install Google Cloud CLI and sign in with `gcloud auth login`. The Google identity configuration also needs permission to manage the named project and service account.
+3. From the repository root, run:
+
+  ```powershell
+  .\scripts\setup-github-publish.ps1 -GenerateUploadKey -ConfigureGoogleCloud
+  ```
+
+  `-GenerateUploadKey` creates the configured key only if it does not already exist. Omit it if you already created and backed up your upload key. Omit `-ConfigureGoogleCloud` to configure GitHub secrets only, or if you are following the manual Cloud Shell steps below.
+4. Complete step 4.4 manually by inviting the service account in Play Console and restricting it to this app and testing-track access.
+
+If Google Cloud setup needs to be retried after GitHub secrets are already configured, use `-ConfigureGoogleCloud -SkipGitHubSecretSetup` to leave the existing secret values untouched and avoid re-entering signing passwords.
+
+This command does not create the Play developer account/app, accept Play Console declarations, perform the first manual AAB upload, or complete store listing and policy forms. Those remain manual. It does not dispatch a publishing workflow unless you pass `-RunPublishWorkflow`; that switch also requires typing `PUBLISH` and refuses to run until the selected remote branch contains the secure model-restore workflow.
 
 ### Step 4.1: Store the upload key in GitHub
 

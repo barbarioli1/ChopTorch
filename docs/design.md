@@ -101,7 +101,7 @@ A loaded model is usable only when its model version, feature version, feature c
 The project targets Java 17, compile SDK 36, target SDK 35, and minimum SDK 26. The `ENABLE_TRAINING` build configuration controls development-only behavior.
 
 - Development application ID: `com.example.choptorch.devclassic`.
-- Shipping application ID: `com.example.choptorch`.
+- Shipping application ID: `com.barbarioli1.choptorch`.
 - Shipping builds require a trained model in `app/src/main/assets/choptorch_model.json`.
 
 A development model can be exported, copied into the shipping asset, and packaged with training disabled. Distinct development IDs protect data from older installed development variants.

@@ -33,6 +33,17 @@ jobs:
       - name: Install Android platform API 36
         run: sdkmanager 'platforms/android-36' 'build-tools/35.0.0' 'platform-tools'
 
+      - name: Restore private model and training samples
+        env:
+          CHOPTORCH_MODEL_JSON: ${{ secrets.CHOPTORCH_MODEL_JSON }}
+          CHOPTORCH_SEED_EXAMPLES_JSON: ${{ secrets.CHOPTORCH_SEED_EXAMPLES_JSON }}
+        run: |
+          set -euo pipefail
+          test -n "$CHOPTORCH_MODEL_JSON" || { echo "::error::Missing CHOPTORCH_MODEL_JSON repository secret"; exit 1; }
+          test -n "$CHOPTORCH_SEED_EXAMPLES_JSON" || { echo "::error::Missing CHOPTORCH_SEED_EXAMPLES_JSON repository secret"; exit 1; }
+          printf '%s' "$CHOPTORCH_MODEL_JSON" > app/src/main/assets/choptorch_model.json
+          printf '%s' "$CHOPTORCH_SEED_EXAMPLES_JSON" > app/trainingAssets/choptorch_seed_examples.json
+
       - name: Test sensor fusion and gesture classifier
         run: bash tests/run-core-tests.sh
 
@@ -41,6 +52,7 @@ jobs:
 
       - name: Upload development debug APK
         uses: actions/upload-artifact@v4
+        if: github.event.repository.private == true
         with:
           name: ChopTorch-development-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
@@ -52,6 +64,7 @@ jobs:
 
       - name: Upload shipping debug APK
         uses: actions/upload-artifact@v4
+        if: github.event.repository.private == true
         with:
           name: ChopTorch-shipping-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk

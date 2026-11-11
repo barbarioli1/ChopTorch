@@ -3,9 +3,13 @@ package com.example.choptorch;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
+import android.graphics.Canvas;
+import android.graphics.Movie;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.Sensor;
@@ -18,17 +22,23 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.OutputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,15 +52,21 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private static final int EXPORT_REQUEST = 32;
     private static final int NOTIFICATION_REQUEST = 33;
     private static final int BATTERY_SETTINGS_REQUEST = 34;
+    private static final int EXPORT_EXAMPLES_REQUEST = 35;
     private static final String STATE_MONITORING_START = "monitoring_start_state";
     private static final String STATE_BATTERY_ALLOWLISTED = "battery_allowlisted_on_return";
     private static final String STATE_PERMISSION_ACTION = "monitoring_permission_action";
+    private static final String STATE_SCREEN = "screen";
     private static final long WINDOW_MS = GestureDetector.WINDOW_MS;
-    private static final int BG = 0xFF0A1220;
-    private static final int CARD = 0xFF142235;
-    private static final int MINT = 0xFF66E0C7;
-    private static final int WHITE = 0xFFF0F6FC;
-    private static final int MUTED = 0xFFACBCCB;
+    private static final int BG = 0xFF060809;
+    private static final int CARD = 0xFF14191C;
+    private static final int BANNER = 0xFF11191A;
+    private static final int MINT = 0xFF65E068; //0xFF66E0C7;
+    private static final int CONFIGURATION_TEAL = 0xFFA4FFA4;
+    private static final int WHITE = 0xFFF0F5F4;
+    private static final int MUTED = 0xFF9CB2AD;
+
+    private enum Screen { HOME, SETTINGS, DETECTION_MODEL, TRAINING, BATTERY, NOTIFICATION, PERMISSIONS, ABOUT }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService trainingWorker = Executors.newSingleThreadExecutor();
@@ -60,6 +76,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private Sensor accelerometer, gyroscope;
     private GestureStore store;
     private TorchController torch;
+    private Screen currentScreen = Screen.HOME;
     private boolean onTrainingPage, preparing, recording, training, resumed, sensorRegistered;
     private boolean sensorsReady;
     private int permissionAction; // 1 manual torch; 2 background detection
@@ -69,9 +86,20 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private AlertDialog batteryDialog;
 
     private LinearLayout page;
-    private TextView statusText, countText, hintText, torchText, scoreText, feedbackText;
-    private Button listenButton, captureButton, trainButton, falsePositiveButton;
+    private TextView statusText, countText, hintText;
+    private TextView homeMonitoringText, homeMonitoringMessage, modelStatusText;
+    private TextView homeInstruction;
+    private TextView detectionMonitoringText, settingsMonitoringText, settingsMonitoringSubtitle;
+    private TextView detectionCountsText, detectionFeedbackText;
+    private TextView flashlightTitle;
+    private ImageView flashlightIcon;
+    private LinearLayout flashlightCard;
+    private Switch flashlightSwitch;
+    private Button captureButton, trainButton, falsePositiveButton;
     private Button positiveButton, negativeButton, discardButton;
+    private ImageButton homeMonitoringButton;
+    private Button openTrainingButton;
+    private boolean updatingFlashlightSwitch;
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
             if (!resumed) return;
@@ -90,21 +118,37 @@ public final class MainActivity extends Activity implements SensorEventListener 
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         store = GestureStore.shared(this);
-        torch = new TorchController(this, on -> {
-            if (torchText != null) torchText.setText(on ? "FLASHLIGHT ON" : "FLASHLIGHT OFF");
-        });
+        torch = new TorchController(this, on -> updateFlashlightControl());
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
         sensorsReady = accelerometer != null && gyroscope != null;
-        showHome();
+        Screen restored = savedInstanceState == null ? Screen.HOME : restoreScreen(savedInstanceState.getString(STATE_SCREEN));
+        if (restored == Screen.SETTINGS) showSettings();
+        else if (restored == Screen.DETECTION_MODEL) showDetectionModel();
+        else if (restored == Screen.BATTERY) showBatterySettingsPage();
+        else if (restored == Screen.NOTIFICATION) showNotificationSettingsPage();
+        else if (restored == Screen.PERMISSIONS) showPermissionsPage();
+        else if (restored == Screen.ABOUT) showAbout();
+        else showHome();
     }
 
     @Override protected void onSaveInstanceState(Bundle outState) {
         outState.putInt(STATE_MONITORING_START, monitoringStartFlow.saveState());
         outState.putBoolean(STATE_BATTERY_ALLOWLISTED, monitoringStartFlow.saveAllowlistedOnReturn());
         outState.putInt(STATE_PERMISSION_ACTION, permissionAction);
+        outState.putString(STATE_SCREEN, currentScreen.name());
         super.onSaveInstanceState(outState);
+    }
+
+    private Screen restoreScreen(String savedScreen) {
+        if (savedScreen == null) return Screen.HOME;
+        try {
+            Screen restored = Screen.valueOf(savedScreen);
+            return restored == Screen.TRAINING ? Screen.HOME : restored;
+        } catch (IllegalArgumentException invalid) {
+            return Screen.HOME;
+        }
     }
 
     @Override protected void onResume() {
@@ -113,7 +157,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             try { torch.initializeAfterPermission(); } catch (Exception ignored) { }
         }
-        syncTrainingSensors();
+        if (onTrainingPage) syncTrainingSensors();
         handler.removeCallbacks(refresh);
         handler.post(refresh);
         restorePendingStartPrompt();
@@ -129,8 +173,16 @@ public final class MainActivity extends Activity implements SensorEventListener 
     }
 
     @Override public void onBackPressed() {
-        if (onTrainingPage) showHome();
-        else super.onBackPressed();
+        switch (currentScreen) {
+            case TRAINING: showHome(); break;
+            case DETECTION_MODEL:
+            case BATTERY:
+            case NOTIFICATION:
+            case PERMISSIONS:
+            case ABOUT: showSettings(); break;
+            case SETTINGS: showHome(); break;
+            default: super.onBackPressed(); break;
+        }
     }
 
     @Override protected void onDestroy() {
@@ -166,58 +218,367 @@ public final class MainActivity extends Activity implements SensorEventListener 
     }
 
     private void showHome() {
+        leaveTrainingIfNeeded();
+        currentScreen = Screen.HOME;
         cancelRecording();
         unregisterTrainingSensors();
         pendingResult = null;
         onTrainingPage = false;
-        page = freshPage();
-        heading("ChopTorch", "Two chops. One flashlight.");
+        page = freshPage(R.id.screen_home);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView appIcon = new ImageView(this);
+        appIcon.setImageResource(R.mipmap.ic_launcher);
+        appIcon.setContentDescription("ChopTorch app icon");
+        header.addView(appIcon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout appTitles = new LinearLayout(this);
+        appTitles.setOrientation(LinearLayout.VERTICAL);
+        appTitles.addView(text("ChopTorch", 22, WHITE, true));
+        appTitles.addView(spacedText("Gesture flashlight", 13, MUTED, 1));
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        titleParams.leftMargin = dp(12);
+        header.addView(appTitles, titleParams);
+        Button settings = compactButton("⚙", "Settings", this::showSettings);
+        settings.setId(R.id.btn_open_settings);
+        header.addView(settings);
+        int visibleHeight = visibleFrameHeightPx();
+        LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        headerParams.topMargin = Math.round(visibleHeight * 0.02f);
+        page.addView(header, headerParams);
 
-        LinearLayout lightCard = card();
-        lightCard.addView(text("FLASHLIGHT", 12, MINT, true));
-        torchText = spacedText("FLASHLIGHT OFF", 18, WHITE, 8);
-        lightCard.addView(torchText);
-        lightCard.addView(spacedText("Quickly chop your phone twice to toggle the torch.", 15, WHITE, 8));
-        lightCard.addView(button("Toggle flashlight manually", false, () -> askForCamera(1)));
+        View topSpace = new View(this);
+        page.addView(topSpace, new LinearLayout.LayoutParams(1, Math.round(visibleHeight * 0.06f)));
+        homeMonitoringButton = new ImageButton(this);
+        homeMonitoringButton.setId(R.id.btn_home_monitoring);
+        homeMonitoringButton.setImageResource(R.drawable.ic_power);
+        homeMonitoringButton.setColorFilter(MINT);
+        homeMonitoringButton.setScaleType(ImageView.ScaleType.CENTER);
+        homeMonitoringButton.setContentDescription("Toggle background gesture monitoring");
+        homeMonitoringButton.setMinimumHeight(0);
+        homeMonitoringButton.setPadding(0, 0, 0, 0);
+        homeMonitoringButton.setBackground(monitoringCircle(false));
+        homeMonitoringButton.setOnClickListener(v -> changeListening());
+        int availableWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels - dp(40));
+        int circleDiameter = Math.min(dp(183), Math.round(availableWidth * 0.62f));
+        circleDiameter = Math.min(availableWidth, Math.max(Math.min(dp(120), availableWidth), circleDiameter));
+        LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(circleDiameter, circleDiameter);
+        circleParams.gravity = Gravity.CENTER_HORIZONTAL;
+        page.addView(homeMonitoringButton, circleParams);
+        homeMonitoringText = spacedText("PAUSED", 18, WHITE, 12);
+        homeMonitoringText.setGravity(Gravity.CENTER);
+        page.addView(homeMonitoringText);
+        homeMonitoringMessage = spacedText("", 14, MUTED, 8);
+        homeMonitoringMessage.setGravity(Gravity.CENTER);
+        page.addView(homeMonitoringMessage);
+        homeInstruction = spacedText("", 13, MUTED, 4);
+        homeInstruction.setGravity(Gravity.CENTER);
+        page.addView(homeInstruction);
 
+        View lowerSpace = new View(this);
+        page.addView(lowerSpace, new LinearLayout.LayoutParams(1, Math.round(visibleHeight * 0.02f)));
+        flashlightCard = card(BG);
+        flashlightCard.setOrientation(LinearLayout.HORIZONTAL);
+        flashlightCard.setGravity(Gravity.CENTER_VERTICAL);
+        flashlightCard.setPadding(dp(16), dp(10), dp(14), dp(10));
+        flashlightIcon = new ImageView(this);
+        flashlightIcon.setImageResource(R.drawable.ic_flashlight);
+        flashlightIcon.setContentDescription("Flashlight status");
+        flashlightCard.addView(flashlightIcon, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        flashlightTitle = text("Flashlight", 15, WHITE, true);
+        LinearLayout.LayoutParams flashlightTitleParams = new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        flashlightTitleParams.leftMargin = dp(12);
+        flashlightCard.addView(flashlightTitle, flashlightTitleParams);
+
+        flashlightSwitch = new Switch(this);
+        flashlightSwitch.setId(R.id.btn_manual_flashlight);
+        flashlightSwitch.setContentDescription("Flashlight");
+        flashlightSwitch.setShowText(false);
+        flashlightSwitch.setMinHeight(dp(48));
+        int[][] switchStates = new int[][]{
+            new int[]{android.R.attr.state_checked},
+            new int[]{}
+        };
+        flashlightSwitch.setThumbTintList(new ColorStateList(switchStates,
+            new int[]{0xFFFFD84D, 0xFFB7C0BD}));
+        flashlightSwitch.setTrackTintList(new ColorStateList(switchStates,
+            new int[]{0xFFB49A3D, 0xFF53605D}));
+        flashlightSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (!updatingFlashlightSwitch && torch != null && checked != torch.isOn()) askForCamera(1);
+        });
+        flashlightCard.addView(flashlightSwitch, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)));
+        updateFlashlightControl();
+
+        LinearLayout helpCard = card();
+        addSettingsRow(helpCard, android.R.drawable.ic_menu_help, "How to use the gesture",
+            "Watch the double-chop motion", this::showGestureTutorial, R.id.row_gesture_help);
+        TextView screenLockNote = spacedText("Monitoring can continue with the screen locked.", 12, MUTED, 2);
+        screenLockNote.setGravity(Gravity.CENTER);
+        page.addView(screenLockNote);
+        updateLabels();
+    }
+
+    private void showGestureTutorial() {
+        Dialog dialog = new Dialog(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(16), dp(16), dp(16), dp(16));
+        GradientDrawable contentBackground = new GradientDrawable();
+        contentBackground.setColor(CARD);
+        contentBackground.setCornerRadius(dp(20));
+        contentBackground.setStroke(dp(1), 0xFF263334);
+        content.setBackground(contentBackground);
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("Double-chop gesture", 18, WHITE, true);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button close = compactButton("×", "Close tutorial", dialog::dismiss);
+        titleRow.addView(close);
+        content.addView(titleRow);
+
+        FrameLayout animationFrame = new FrameLayout(this);
+        GradientDrawable animationBackground = new GradientDrawable();
+        animationBackground.setColor(BG);
+        animationBackground.setCornerRadius(dp(14));
+        animationBackground.setStroke(dp(1), 0xFF263334);
+        animationFrame.setBackground(animationBackground);
+        LinearLayout.LayoutParams animationParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0);
+        animationParams.topMargin = dp(14);
+        animationFrame.setLayoutParams(animationParams);
+        GifMovieView animation = new GifMovieView();
+        animationFrame.addView(animation, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        content.addView(animationFrame);
+
+        content.addView(spacedText(
+                "Hold your phone firmly and perform two short, quick chopping arcs with your wrist.",
+                14, WHITE, 12));
+        Button gotIt = button("Got it", true, dialog::dismiss);
+        LinearLayout.LayoutParams gotItParams = new LinearLayout.LayoutParams(dp(104), dp(50));
+        gotItParams.gravity = Gravity.END;
+        gotItParams.topMargin = dp(8);
+        content.addView(gotIt, gotItParams);
+
+        dialog.setContentView(content);
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnShowListener(ignored -> {
+            animation.start();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+                dialog.getWindow().setLayout(Math.min(Math.round(getResources().getDisplayMetrics().widthPixels * 0.9f), dp(420)),
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+                animationFrame.post(() -> {
+                    int frameWidth = animationFrame.getWidth();
+                    if (frameWidth <= 0) return;
+                    LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) animationFrame.getLayoutParams();
+                    params.height = animation.heightForWidth(frameWidth);
+                    animationFrame.setLayoutParams(params);
+                });
+            }
+        });
+        dialog.setOnDismissListener(ignored -> animation.stop());
+        dialog.show();
+    }
+
+    private void showSettings() {
+        leaveTrainingIfNeeded();
+        currentScreen = Screen.SETTINGS;
+        onTrainingPage = false;
+        page = freshPage(R.id.screen_settings);
+        Button settingsBack = addBackHeader("Settings", R.id.btn_settings_back, this::showHome);
+        settingsBack.setTextColor(CONFIGURATION_TEAL);
+
+        sectionTitle("BACKGROUND & POWER", CONFIGURATION_TEAL);
+        LinearLayout powerCard = card();
+        addSettingsRow(powerCard, android.R.drawable.ic_lock_idle_low_battery,
+            "Battery optimization", "Review background usage", this::showBatterySettingsPage, 0,
+            CONFIGURATION_TEAL);
+        addSettingsRow(powerCard, android.R.drawable.ic_dialog_info,
+            "Service notification", "Manage the active monitoring notification", this::showNotificationSettingsPage,
+            0, CONFIGURATION_TEAL);
+        addSettingsRow(powerCard, android.R.drawable.ic_menu_manage,
+            "Permissions & setup", "Camera and notification access", this::showPermissionsPage,
+            R.id.row_permissions, CONFIGURATION_TEAL);
+
+        sectionTitle("DETECTION", CONFIGURATION_TEAL);
         LinearLayout detectionCard = card();
-        detectionCard.addView(text("BACKGROUND GESTURE DETECTOR", 12, MINT, true));
-        statusText = spacedText("", 18, WHITE, 12);
-        detectionCard.addView(statusText);
-        scoreText = spacedText("", 14, MUTED, 8);
-        detectionCard.addView(scoreText);
-        listenButton = button("Start background detection", true, this::changeListening);
-        detectionCard.addView(listenButton);
-        detectionCard.addView(spacedText("Works while you use other apps or lock the screen, when Android permits. A persistent notification lets you stop it. Continuous monitoring uses battery.", 13, MUTED, 12));
+        addSettingsRow(detectionCard, android.R.drawable.ic_menu_info_details,
+                "Detection & model", "Model and personal training", this::showDetectionModel,
+                R.id.row_detection_model, CONFIGURATION_TEAL);
+
+            sectionTitle("FEEDBACK", CONFIGURATION_TEAL);
+            LinearLayout feedbackCard = card();
+            addVibrationFeedbackRow(feedbackCard);
+
+        sectionTitle("ABOUT", CONFIGURATION_TEAL);
+        LinearLayout aboutCard = card();
+        addSettingsRow(aboutCard, android.R.drawable.ic_menu_info_details,
+            "About ChopTorch", "Version and privacy", this::showAbout, R.id.row_about,
+            CONFIGURATION_TEAL);
+        updateLabels();
+    }
+
+        private void addVibrationFeedbackRow(LinearLayout container) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(10), 0, dp(10));
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text("Vibration feedback", 15, WHITE, true));
+        labels.addView(spacedText("Confirm flashlight ON/OFF", 13, MUTED, 3));
+        row.addView(labels, new LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        Switch feedbackSwitch = new Switch(this);
+        feedbackSwitch.setContentDescription("Vibration feedback");
+        feedbackSwitch.setChecked(VibrationFeedback.isEnabled(this));
+        feedbackSwitch.setOnCheckedChangeListener((button, enabled) ->
+            VibrationFeedback.setEnabled(this, enabled));
+        row.addView(feedbackSwitch, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)));
+        container.addView(row);
+        }
+
+    private void showDetectionModel() {
+        leaveTrainingIfNeeded();
+        currentScreen = Screen.DETECTION_MODEL;
+        onTrainingPage = false;
+        page = freshPage(R.id.screen_detection_model);
+        addBackHeader("Detection & model", R.id.btn_detection_back, this::showSettings);
+
+        LinearLayout modelCard = card();
+        modelCard.addView(text("MODEL", 12, MINT, true));
+        modelStatusText = spacedText("", 16, WHITE, 7);
+        modelStatusText.setId(R.id.model_status);
+        modelCard.addView(modelStatusText);
+        detectionMonitoringText = spacedText("", 14, MUTED, 9);
+        modelCard.addView(detectionMonitoringText);
+        modelCard.addView(spacedText("Double-chop recognition runs locally on your device.", 14, MUTED, 9));
 
         if (BuildConfig.ENABLE_TRAINING) {
-            LinearLayout feedbackCard = card();
-            feedbackCard.addView(text("CORRECT A FALSE POSITIVE", 12, MINT, true));
-            feedbackCard.addView(spacedText("If a double-chop detection accidentally switched the flashlight ON, flag it within 10 minutes. The exact triggering IMU features will be labeled NOT chop, and the model will retrain automatically.", 14, WHITE, 8));
-            falsePositiveButton = button("Flag last ON as false positive", false, this::flagFalsePositive);
-            feedbackCard.addView(falsePositiveButton);
-            feedbackText = spacedText("", 13, MUTED, 10);
-            feedbackCard.addView(feedbackText);
+            modelCard.addView(spacedText("Model input: 27 motion features. Detection threshold: 82%.", 14, MUTED, 8));
+            sectionTitle("PERSONAL TRAINING");
+            LinearLayout trainingCard = card();
+            detectionCountsText = spacedText("", 15, WHITE, 0);
+            trainingCard.addView(detectionCountsText);
+            openTrainingButton = button("Open training page", true, () -> {
+                if (BuildConfig.ENABLE_TRAINING && currentScreen != Screen.TRAINING && !training) showTraining();
+            });
+            openTrainingButton.setId(R.id.btn_open_training);
+            trainingCard.addView(openTrainingButton);
+            trainingCard.addView(button("Export trained NN weights (JSON)", false, this::exportModel));
+            trainingCard.addView(spacedText("Training pauses background gesture monitoring.", 13, MUTED, 8));
 
-            LinearLayout trainCard = card();
-            trainCard.addView(text("PERSONALIZE AND EXPORT", 12, MINT, true));
-            countText = spacedText("", 16, WHITE, 8);
-            trainCard.addView(countText);
-            trainCard.addView(button("Open training page", false, this::showTraining));
-            trainCard.addView(button("Export trained NN weights (JSON)", false, this::exportModel));
-            trainCard.addView(spacedText("Exported JSON can be bundled as app/src/main/assets/choptorch_model.json for a shipping build.", 13, MUTED, 10));
+            sectionTitle("IMPROVE RECOGNITION");
+            LinearLayout feedbackCard = card();
+            feedbackCard.addView(spacedText("If ChopTorch mistakenly turned the flashlight on, flag that detection within 10 minutes.", 14, WHITE, 0));
+            falsePositiveButton = button("Flag last ON as false positive", false, this::flagFalsePositive);
+            falsePositiveButton.setId(R.id.btn_false_positive);
+            feedbackCard.addView(falsePositiveButton);
+            detectionFeedbackText = spacedText("", 13, MUTED, 8);
+            detectionFeedbackText.setId(R.id.feedback_status);
+            feedbackCard.addView(detectionFeedbackText);
         }
         updateLabels();
     }
 
+    private void showAbout() {
+        leaveTrainingIfNeeded();
+        currentScreen = Screen.ABOUT;
+        onTrainingPage = false;
+        page = freshPage(R.id.screen_about);
+        addBackHeader("About ChopTorch", R.id.btn_about_back, this::showSettings);
+        LinearLayout aboutCard = card();
+        aboutCard.addView(text("ChopTorch", 19, WHITE, true));
+        String version;
+        try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (PackageManager.NameNotFoundException missing) { version = "Unavailable"; }
+        aboutCard.addView(spacedText("Version " + version, 14, MUTED, 8));
+        aboutCard.addView(spacedText("Motion data and gesture recognition are processed locally on this device.", 14, WHITE, 16));
+        updateLabels();
+    }
+
+    private void showBatterySettingsPage() {
+        leaveTrainingIfNeeded();
+        currentScreen = Screen.BATTERY;
+        onTrainingPage = false;
+        page = freshPage(R.id.screen_battery);
+        addBackHeader("Battery optimization", R.id.btn_battery_back, this::showSettings);
+        LinearLayout details = card();
+        details.addView(text("BACKGROUND & POWER", 12, MINT, true));
+        details.addView(spacedText("Android battery controls can affect background monitoring. ChopTorch cannot determine every manufacturer's unrestricted or sleep policy from the platform allowlist status.", 15, WHITE, 10));
+        details.addView(button("Open Android app settings", false, this::openAppBatterySettings));
+        details.addView(spacedText("Monitoring is never started or stopped from this page.", 13, MUTED, 10));
+    }
+
+    private void showNotificationSettingsPage() {
+        leaveTrainingIfNeeded();
+        currentScreen = Screen.NOTIFICATION;
+        onTrainingPage = false;
+        page = freshPage(R.id.screen_notification);
+        addBackHeader("Service notification", R.id.btn_notification_back, this::showSettings);
+        LinearLayout details = card();
+        details.addView(text("FOREGROUND SERVICE", 12, MINT, true));
+        details.addView(spacedText("Android displays a persistent notification while gesture monitoring is active. ChopTorch does not provide a switch that disables this required service notification.", 15, WHITE, 10));
+        details.addView(button("Open notification settings", false, this::openNotificationSettings));
+    }
+
+    private void showPermissionsPage() {
+        leaveTrainingIfNeeded();
+        currentScreen = Screen.PERMISSIONS;
+        onTrainingPage = false;
+        page = freshPage(R.id.screen_permissions);
+        addBackHeader("Permissions & setup", R.id.btn_permissions_back, this::showSettings);
+        LinearLayout cameraCard = card();
+        cameraCard.addView(text("CAMERA", 12, MINT, true));
+        boolean cameraGranted = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+        cameraCard.addView(spacedText(cameraGranted
+                ? "Granted. Used to control the camera flashlight."
+                : "Not granted. Requested only when you use the flashlight or start monitoring.", 15, WHITE, 8));
+        if (!cameraGranted) cameraCard.addView(button("Set up flashlight", false, () -> askForCamera(1)));
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            LinearLayout notificationCard = card();
+            notificationCard.addView(text("NOTIFICATIONS", 12, MINT, true));
+            boolean notificationGranted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+            notificationCard.addView(spacedText(notificationGranted
+                    ? "Granted. Used for the foreground monitoring notification."
+                    : "Not granted. Android may hide the monitoring notification until access is allowed.", 15, WHITE, 8));
+            if (!notificationGranted) notificationCard.addView(button("Allow notifications", false, () ->
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST)));
+        }
+    }
+
     private void showTraining() {
         if (!BuildConfig.ENABLE_TRAINING) return;
+        if (currentScreen == Screen.TRAINING) return;
         if (GestureDetectionService.isRunning()) {
             startService(GestureDetectionService.command(this, GestureDetectionService.ACTION_STOP));
         }
+        currentScreen = Screen.TRAINING;
         onTrainingPage = true;
-        page = freshPage();
-        page.addView(button("‹  Back to flashlight", false, this::showHome));
+        page = freshPage(R.id.screen_training);
+        Button back = new Button(this);
+        back.setId(R.id.btn_training_back);
+        back.setAllCaps(false);
+        back.setText("‹ Back to flashlight");
+        back.setTextSize(15);
+        back.setTextColor(MUTED);
+        back.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        back.setMinHeight(dp(48));
+        back.setMinimumHeight(dp(48));
+        back.setBackgroundColor(BG);
+        back.setOnClickListener(v -> showHome());
+        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        backParams.topMargin = Math.round(visibleFrameHeightPx() * 0.02f);
+        page.addView(back, backParams);
         heading("Teach the gesture", "Capture. Confirm. Train. Export.");
         syncTrainingSensors();
 
@@ -249,9 +610,36 @@ public final class MainActivity extends Activity implements SensorEventListener 
         trainButton = button("Train neural network", true, this::beginTraining);
         trainingCard.addView(trainButton);
         trainingCard.addView(button("Export weights as JSON", false, this::exportModel));
+        trainingCard.addView(button("Export examples as JSON", false, this::exportExamples));
         trainingCard.addView(button("Erase all examples and model", false, this::confirmErase));
         trainingCard.addView(spacedText("To ship without a training page: put the exported JSON into app/src/main/assets/choptorch_model.json and build with -Pshipping=true.", 14, MUTED, 12));
         updateLabels();
+    }
+
+    private void leaveTrainingIfNeeded() {
+        if (!onTrainingPage) return;
+        cancelRecording();
+        unregisterTrainingSensors();
+        pendingResult = null;
+        onTrainingPage = false;
+    }
+
+    private void openAppBatterySettings() {
+        Intent settings = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName()));
+        try {
+            startActivity(settings);
+        } catch (ActivityNotFoundException unavailable) {
+            try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
+            catch (ActivityNotFoundException noFallback) { showToast("Battery settings are unavailable on this device."); }
+        }
+    }
+
+    private void openNotificationSettings() {
+        Intent settings = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+        settings.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+        try { startActivity(settings); }
+        catch (ActivityNotFoundException unavailable) { openAppBatterySettings(); }
     }
 
     private void beginRecording() {
@@ -371,6 +759,15 @@ public final class MainActivity extends Activity implements SensorEventListener 
         startActivityForResult(picker, EXPORT_REQUEST);
     }
 
+    private void exportExamples() {
+        if (!BuildConfig.ENABLE_TRAINING) return;
+        Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("application/json");
+        picker.putExtra(Intent.EXTRA_TITLE, "choptorch_seed_examples.json");
+        startActivityForResult(picker, EXPORT_EXAMPLES_REQUEST);
+    }
+
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == BATTERY_SETTINGS_REQUEST) {
@@ -384,13 +781,17 @@ public final class MainActivity extends Activity implements SensorEventListener 
             if (resumed) showSettingsReturnConfirmation();
             return;
         }
-        if (requestCode != EXPORT_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if ((requestCode != EXPORT_REQUEST && requestCode != EXPORT_EXAMPLES_REQUEST)
+                || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
             if (out == null) throw new IllegalStateException("Could not open destination");
-            out.write(store.exportModelJson().getBytes(StandardCharsets.UTF_8));
+            boolean exportingExamples = requestCode == EXPORT_EXAMPLES_REQUEST;
+            String json = exportingExamples ? store.exportExamplesJson() : store.exportModelJson();
+            out.write(json.getBytes(StandardCharsets.UTF_8));
             out.flush();
-            showToast("Neural-network weights exported as JSON.");
+            showToast(exportingExamples ? "Training examples exported as JSON."
+                    : "Neural-network weights exported as JSON.");
         } catch (Exception failure) { showToast("Export failed: " + failure.getMessage()); }
     }
 
@@ -438,11 +839,16 @@ public final class MainActivity extends Activity implements SensorEventListener 
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(requestCode, permissions, grants);
+        if (requestCode == NOTIFICATION_REQUEST) {
+            updateLabels();
+            return;
+        }
         if (requestCode != CAMERA_REQUEST) return;
         if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED)
             completeCameraAction(permissionAction);
         else {
             if (permissionAction == 2) cancelPendingStart();
+            updateLabels();
             showToast("Camera permission is needed for flashlight control.");
         }
     }
@@ -592,77 +998,284 @@ public final class MainActivity extends Activity implements SensorEventListener 
     }
 
     private void updateLabels() {
-        if (torchText != null && !onTrainingPage)
-            torchText.setText(torch.isOn() ? "FLASHLIGHT ON" : "FLASHLIGHT OFF");
-        if (countText != null) {
-            int positiveCount = store.count(true);
-            int negativeCount = store.count(false);
-            String positiveSummary = getResources().getQuantityString(
-                R.plurals.double_chop_count, positiveCount, positiveCount);
-            String negativeSummary = getResources().getQuantityString(
-                R.plurals.other_movement_count, negativeCount, negativeCount);
-            countText.setText(getString(R.string.training_count_summary,
-                positiveSummary, negativeSummary));
-        }
-        if (!onTrainingPage) {
-            if (statusText != null) {
-                statusText.setText(!sensorsReady ? "No accelerometer or gyroscope found"
-                        : !store.isModelCurrent() ? "Model missing or retraining…"
-                        : GestureDetectionService.isRunning() ? "Background monitoring active" : "Detector stopped");
-            }
-            if (scoreText != null) {
-                String error = GestureDetectionService.getError();
-                scoreText.setText(error.isEmpty()
-                        ? String.format(Locale.US, "Score %.0f%%  ·  threshold 82%% + 2 peaks",
-                        GestureDetectionService.getScore() * 100)
-                        : "Last error: " + error);
-            }
-            if (listenButton != null) {
-                listenButton.setText(GestureDetectionService.isRunning() ? "Stop background detection"
-                        : monitoringStartFlow.isPending() ? "Cancel monitoring start" : "Start background detection");
-                listenButton.setEnabled(monitoringStartFlow.isPending()
-                    || sensorsReady && store.isModelCurrent());
-            }
-            if (falsePositiveButton != null) falsePositiveButton.setEnabled(store.hasFeedbackCandidate());
-            if (feedbackText != null) feedbackText.setText(store.getFeedbackMessage());
-        } else {
-            if (captureButton != null) captureButton.setEnabled(!training && !recording && !preparing && sensorRegistered);
-            if (positiveButton != null) positiveButton.setEnabled(!training && pendingResult != null);
-            if (negativeButton != null) negativeButton.setEnabled(!training && pendingResult != null);
-            if (discardButton != null) discardButton.setEnabled(!training && pendingResult != null);
-            if (trainButton != null) {
-                trainButton.setEnabled(!training && !recording && !preparing
-                        && store.count(true) >= 6 && store.count(false) >= 6);
-                trainButton.setText(training ? "Training…" : "Train neural network");
-            }
-            if (hintText != null) {
-                if (pendingResult != null) {
-                    hintText.setText(String.format(Locale.US,
-                            "%d rotational peaks · gap %d ms · max rotation %.1f rad/s. Confirm the real movement.",
-                            pendingResult.strongPeaks, pendingResult.peakGapMs, pendingResult.maxGyro));
-                } else hintText.setText(store.isModelCurrent() ? "Model saved. Export or collect more examples."
-                        : "After recording, choose the correct label.");
-            }
+        switch (currentScreen) {
+            case HOME:
+                updateHomeLabels();
+                break;
+            case SETTINGS:
+                updateSettingsLabels();
+                break;
+            case DETECTION_MODEL:
+                updateDetectionModelLabels();
+                break;
+            case TRAINING:
+                updateTrainingLabels();
+                break;
+            case ABOUT:
+            case BATTERY:
+            case NOTIFICATION:
+            case PERMISSIONS:
+                break;
         }
     }
 
-    private LinearLayout freshPage() {
+    private void updateHomeLabels() {
+        boolean serviceRunning = GestureDetectionService.isRunning();
+        String serviceError = GestureDetectionService.getError();
+        boolean active = serviceRunning && sensorsReady && store.isModelCurrent() && serviceError.isEmpty();
+        boolean starting = monitoringStartFlow.isPending();
+        boolean ready = sensorsReady && store.isModelCurrent();
+        updateFlashlightControl();
+        if (homeMonitoringButton == null) return;
+        homeMonitoringButton.setBackground(monitoringCircle(active));
+        homeMonitoringButton.setEnabled(serviceRunning || starting || ready);
+        homeMonitoringButton.setContentDescription(serviceRunning ? "Stop background gesture monitoring"
+            : starting ? "Cancel monitoring start" : "Start background gesture monitoring");
+        if (homeMonitoringText != null) {
+            homeMonitoringText.setText(active ? "LISTENING" : starting ? "PREPARING"
+                : serviceRunning || !serviceError.isEmpty() || !ready ? "NEEDS ATTENTION" : "PAUSED");
+        }
+        if (homeMonitoringMessage != null) {
+            String message;
+            if (active) message = "Tap to pause";
+            else if (starting) message = "Tap the circle to cancel start.";
+            else if (!serviceError.isEmpty())
+                message = "Monitoring stopped after an error. Tap to try again.";
+            else if (!sensorsReady) message = "Motion sensors are unavailable on this device.";
+            else if (!store.isModelCurrent()) message = BuildConfig.ENABLE_TRAINING
+                    ? "The model needs training before monitoring can start."
+                    : "The model is unavailable.";
+            else if (serviceRunning) message = "Monitoring needs attention. Tap to stop it.";
+            else message = "Tap to enable";
+            homeMonitoringMessage.setText(message);
+        }
+        if (homeInstruction != null) homeInstruction.setText(active
+            ? "Double-chop to toggle your flashlight"
+            : "Gesture detection is currently disabled");
+    }
+
+    private void updateSettingsLabels() {
+        boolean active = GestureDetectionService.isRunning();
+        boolean unavailable = !sensorsReady || !store.isModelCurrent();
+        if (settingsMonitoringSubtitle != null) settingsMonitoringSubtitle.setText(
+                active ? "Background monitoring is active" : "Monitoring is paused");
+        if (settingsMonitoringText != null) {
+            settingsMonitoringText.setText(active ? "ACTIVE" : unavailable ? "UNAVAILABLE" : "PAUSED");
+            settingsMonitoringText.setTextColor(active ? MINT : unavailable ? 0xFFFFC56E : MUTED);
+        }
+    }
+
+    private void updateFlashlightControl() {
+        if (torch == null) return;
+        boolean on = torch.isOn();
+        if (flashlightCard != null) {
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(on ? 0xFFFFF1C2 : BG);
+            background.setCornerRadius(dp(19));
+            background.setStroke(dp(1), on ? 0xFFE9D078 : 0xFF263334);
+            flashlightCard.setBackground(background);
+        }
+        if (flashlightIcon != null) {
+            flashlightIcon.setColorFilter(on ? 0xFFFFC928 : 0xFF89918F);
+            flashlightIcon.setContentDescription(on ? "Flashlight on" : "Flashlight off");
+        }
+        if (flashlightTitle != null) flashlightTitle.setTextColor(on ? 0xFF30280F : WHITE);
+        if (flashlightSwitch != null && flashlightSwitch.isChecked() != on) {
+            updatingFlashlightSwitch = true;
+            flashlightSwitch.setChecked(on);
+            updatingFlashlightSwitch = false;
+        }
+    }
+
+    private void updateDetectionModelLabels() {
+        boolean current = store.isModelCurrent();
+        int total = store.count(true) + store.count(false);
+        if (modelStatusText != null) modelStatusText.setText(!sensorsReady ? "Motion sensors unavailable" : current ? "Ready"
+                : total > 0 ? "Needs training" : "Unavailable");
+        if (detectionMonitoringText != null) detectionMonitoringText.setText(
+                GestureDetectionService.isRunning() ? "Monitoring: Active" : "Monitoring: Paused");
+        if (detectionCountsText != null) detectionCountsText.setText(trainingCountsSummary());
+        boolean candidate = BuildConfig.ENABLE_TRAINING && store.hasFeedbackCandidate();
+        if (falsePositiveButton != null) falsePositiveButton.setEnabled(candidate && !training);
+        if (detectionFeedbackText != null) {
+            String feedback = store.getFeedbackMessage();
+            detectionFeedbackText.setText(!feedback.isEmpty() ? feedback : candidate
+                    ? "A recent automatic torch-ON detection is available to flag."
+                    : "No recent torch-ON detection to correct.");
+        }
+        if (openTrainingButton != null) openTrainingButton.setEnabled(
+                BuildConfig.ENABLE_TRAINING && !training && currentScreen != Screen.TRAINING);
+    }
+
+    private void updateTrainingLabels() {
+        if (countText != null) countText.setText(trainingCountsSummary());
+        if (captureButton != null) captureButton.setEnabled(!training && !recording && !preparing && sensorRegistered);
+        if (positiveButton != null) positiveButton.setEnabled(!training && pendingResult != null);
+        if (negativeButton != null) negativeButton.setEnabled(!training && pendingResult != null);
+        if (discardButton != null) discardButton.setEnabled(!training && pendingResult != null);
+        if (trainButton != null) {
+            trainButton.setEnabled(!training && !recording && !preparing
+                    && store.count(true) >= 6 && store.count(false) >= 6);
+            trainButton.setText(training ? "Training…" : "Train neural network");
+        }
+        if (hintText != null) {
+            if (pendingResult != null) {
+                hintText.setText(String.format(Locale.US,
+                        "%d rotational peaks · gap %d ms · max rotation %.1f rad/s. Confirm the real movement.",
+                        pendingResult.strongPeaks, pendingResult.peakGapMs, pendingResult.maxGyro));
+            } else hintText.setText(store.isModelCurrent() ? "Model saved. Export or collect more examples."
+                    : "After recording, choose the correct label.");
+        }
+    }
+
+    private String trainingCountsSummary() {
+        int positiveCount = store.count(true);
+        int negativeCount = store.count(false);
+        String positiveSummary = getResources().getQuantityString(
+                R.plurals.double_chop_count, positiveCount, positiveCount);
+        String negativeSummary = getResources().getQuantityString(
+                R.plurals.other_movement_count, negativeCount, negativeCount);
+        return getString(R.string.training_count_summary, positiveSummary, negativeSummary);
+    }
+
+    private int visibleFrameHeightPx() {
+        android.graphics.Rect visibleFrame = new android.graphics.Rect();
+        getWindow().getDecorView().getWindowVisibleDisplayFrame(visibleFrame);
+        if (visibleFrame.height() > 0) return visibleFrame.height();
+
+        int height = getResources().getDisplayMetrics().heightPixels;
+        int statusBarId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        int navigationBarId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        if (statusBarId > 0) height -= getResources().getDimensionPixelSize(statusBarId);
+        if (navigationBarId > 0) height -= getResources().getDimensionPixelSize(navigationBarId);
+        return Math.max(1, height);
+    }
+
+    private LinearLayout freshPage(int screenId) {
         ScrollView scroller = new ScrollView(this);
+        scroller.setId(screenId);
         scroller.setFillViewport(true);
         scroller.setBackgroundColor(BG);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(26), dp(20), dp(26));
+        content.setPadding(dp(20), dp(20), dp(20), dp(32));
+        View visibleFrameSpacer = new View(this);
+        content.addView(visibleFrameSpacer, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, Math.round(visibleFrameHeightPx() * 0.03f)));
         scroller.addView(content);
         setContentView(scroller);
-        statusText = countText = hintText = torchText = scoreText = feedbackText = null;
-        listenButton = captureButton = trainButton = falsePositiveButton = null;
+        statusText = countText = hintText = null;
+        homeMonitoringText = homeMonitoringMessage = modelStatusText = null;
+        homeInstruction = null;
+        detectionMonitoringText = settingsMonitoringText = settingsMonitoringSubtitle = null;
+        detectionCountsText = detectionFeedbackText = null;
+        captureButton = trainButton = falsePositiveButton = null;
+        homeMonitoringButton = null;
+        flashlightCard = null;
+        flashlightIcon = null;
+        flashlightTitle = null;
+        flashlightSwitch = null;
+        openTrainingButton = null;
         positiveButton = negativeButton = discardButton = null;
         return content;
     }
 
+    private Button addBackHeader(String title, int buttonId, Runnable onBack) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        Button back = compactButton("‹", "Back", onBack);
+        back.setId(buttonId);
+        row.addView(back);
+        TextView titleView = text(title, 24, WHITE, true);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        titleParams.leftMargin = dp(12);
+        row.addView(titleView, titleParams);
+        LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        headerParams.topMargin = Math.round(visibleFrameHeightPx() * 0.02f);
+        page.addView(row, headerParams);
+        View space = new View(this);
+        page.addView(space, new LinearLayout.LayoutParams(1, dp(18)));
+        return back;
+    }
+
+    private Button compactButton(String label, String description, Runnable onClick) {
+        Button button = new Button(this);
+        button.setAllCaps(false);
+        button.setText(label);
+        button.setTextSize(21);
+        button.setTextColor(WHITE);
+        button.setContentDescription(description);
+        button.setMinHeight(dp(48));
+        button.setMinimumHeight(dp(48));
+        button.setPadding(0, 0, 0, 0);
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(CARD);
+        background.setCornerRadius(dp(8));
+        button.setBackground(background);
+        button.setOnClickListener(v -> onClick.run());
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
+        return button;
+    }
+
+    private GradientDrawable monitoringCircle(boolean active) {
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(BANNER);
+        circle.setStroke(dp(3), active ? MINT : 0xFF53615E);
+        return circle;
+    }
+
+    private void sectionTitle(String value) {
+        sectionTitle(value, MINT);
+    }
+
+    private void sectionTitle(String value, int color) {
+        TextView title = text(value, 12, color, true);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(2);
+        params.bottomMargin = dp(9);
+        page.addView(title, params);
+    }
+
+    private void addSettingsRow(LinearLayout container, int iconResource, String title,
+                                String subtitle, Runnable action, int viewId) {
+        addSettingsRow(container, iconResource, title, subtitle, action, viewId, MINT);
+    }
+
+    private void addSettingsRow(LinearLayout container, int iconResource, String title,
+                                String subtitle, Runnable action, int viewId, int iconColor) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(68));
+        row.setPadding(0, dp(8), 0, dp(8));
+        row.setContentDescription(title + ". " + subtitle);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> action.run());
+        if (viewId != 0) row.setId(viewId);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconResource);
+        icon.setColorFilter(iconColor);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        labelsParams.leftMargin = dp(14);
+        labels.addView(text(title, 15, WHITE, true));
+        labels.addView(spacedText(subtitle, 13, MUTED, 3));
+        row.addView(labels, labelsParams);
+        TextView chevron = text("›", 25, iconColor, false);
+        chevron.setGravity(Gravity.CENTER);
+        row.addView(chevron, new LinearLayout.LayoutParams(dp(30), dp(40)));
+        container.addView(row);
+    }
+
     private void heading(String title, String subtitle) {
-        TextView titleView = text(title, 33, WHITE, true);
+        TextView titleView = text(title, 24, WHITE, true);
         page.addView(titleView);
         page.addView(spacedText(subtitle, 16, MUTED, 6));
         View space = new View(this);
@@ -671,11 +1284,15 @@ public final class MainActivity extends Activity implements SensorEventListener 
     }
 
     private LinearLayout card() {
+        return card(CARD);
+    }
+
+    private LinearLayout card(int backgroundColor) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(18), dp(19), dp(18), dp(18));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD);
+        bg.setColor(backgroundColor);
         bg.setCornerRadius(dp(19));
         card.setBackground(bg);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -714,7 +1331,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
         b.setMinHeight(dp(54));
         GradientDrawable background = new GradientDrawable();
         background.setColor(primary ? MINT : 0xFF26394E);
-        background.setCornerRadius(dp(14));
+        background.setCornerRadius(dp(8));
         b.setBackground(background);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
@@ -722,6 +1339,55 @@ public final class MainActivity extends Activity implements SensorEventListener 
         b.setLayoutParams(params);
         b.setOnClickListener(v -> onClick.run());
         return b;
+    }
+
+    private final class GifMovieView extends View {
+        private final Movie movie;
+        private long startedAt;
+        private boolean running;
+
+        GifMovieView() {
+            super(MainActivity.this);
+            Movie decoded = null;
+            try (InputStream input = getAssets().open("double-chop.gif")) {
+                decoded = Movie.decodeStream(input);
+            } catch (Exception ignored) { }
+            movie = decoded;
+            setContentDescription("Looping demonstration of the double-chop gesture");
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+
+        void start() {
+            startedAt = SystemClock.uptimeMillis();
+            running = true;
+            invalidate();
+        }
+
+        void stop() {
+            running = false;
+        }
+
+        int heightForWidth(int width) {
+            if (movie == null || movie.width() <= 0 || movie.height() <= 0)
+                return Math.round(width * 217f / 439f);
+            return Math.round(width * movie.height() / (float) movie.width());
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (!running || movie == null || movie.width() <= 0 || movie.height() <= 0) return;
+            int duration = Math.max(movie.duration(), 1000);
+            movie.setTime((int) ((SystemClock.uptimeMillis() - startedAt) % duration));
+            float scale = Math.min(getWidth() / (float) movie.width(), getHeight() / (float) movie.height());
+            float left = (getWidth() - movie.width() * scale) / 2f;
+            float top = (getHeight() - movie.height() * scale) / 2f;
+            int save = canvas.save();
+            canvas.translate(left, top);
+            canvas.scale(scale, scale);
+            movie.draw(canvas, 0, 0);
+            canvas.restoreToCount(save);
+            postInvalidateDelayed(16);
+        }
     }
 
     private int dp(int pixels) {

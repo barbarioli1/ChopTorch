@@ -8,7 +8,7 @@ Use this checklist to take a reviewed ChopTorch release candidate from the repos
 - [ ] Review the working tree. Commit and push only the intended release changes to `main` or `master`; the publishing workflow checks out the selected branch and does not publish uncommitted local changes.
 - [ ] Run `bash tests/run-core-tests.sh` and retain its output.
 - [ ] Run `gradlew.bat lintDebug` and resolve or explicitly accept each warning relevant to release.
-- [ ] Build development and shipping variants and confirm the shipping application ID is `com.example.choptorch`.
+- [ ] Build development and shipping variants and confirm the shipping application ID is `com.barbarioli1.choptorch`.
 - [ ] Run the device tests for both variants on the supported device set. Current smoke coverage checks Activity launch and the `ENABLE_TRAINING` build flag only; it does not cover monitoring, torch behavior, permissions, or foreground-service lifecycle.
 - [ ] Add or run release-relevant tests for permission grant/denial/revocation, service start/stop, notification actions, model-load failure, torch/sensor unavailability, and lifecycle cleanup; record any explicitly accepted gaps.
 - [ ] Verify the shipping model asset and record its hash and provenance.

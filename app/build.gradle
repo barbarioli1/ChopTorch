@@ -64,7 +64,7 @@ android {
     compileSdk 36
 
     defaultConfig {
-        applicationId 'com.example.choptorch'
+        applicationId 'com.barbarioli1.choptorch'
         // A GitHub runner may generate a different debug signing key on every run.
         // Keep the existing v1 install (and its examples) safe alongside v2 dev.
         if (!shipping) applicationIdSuffix '.devclassic'
