@@ -105,9 +105,7 @@ function Test-GcloudResource {
 $script:Repository = Get-ConfigValue 'GITHUB_REPOSITORY'
 $script:EnvironmentName = Get-ConfigValue 'GITHUB_ENVIRONMENT'
 $branch = Get-ConfigValue 'GITHUB_BRANCH'
-$versionCode = Get-ConfigValue 'VERSION_CODE'
 if ($script:Repository -notmatch '^[^/]+/[^/]+$') { throw 'GITHUB_REPOSITORY must use OWNER/REPO format.' }
-if ($versionCode -notmatch '^\d+$' -or [int]$versionCode -lt 4) { throw 'VERSION_CODE must be an integer of at least 4; confirm it is also greater than the latest Play version.' }
 
 $ghCommand = Get-Command gh -ErrorAction SilentlyContinue
 if ($ghCommand) {
@@ -273,9 +271,9 @@ if ($RunPublishWorkflow) {
         }
     }
 
-    $confirmation = Read-Host "This dispatches a real internal Play release for versionCode $versionCode. Type PUBLISH to continue"
+    $confirmation = Read-Host 'This dispatches a real internal Play release. The workflow will look up the next versionCode in Google Play. Type PUBLISH to continue'
     if ($confirmation -cne 'PUBLISH') { throw 'Publish dispatch canceled.' }
-    & $script:GhPath workflow run 'publish-play-internal.yml' --repo $script:Repository --ref $branch --field "version_code=$versionCode"
+    & $script:GhPath workflow run 'publish-play-internal.yml' --repo $script:Repository --ref $branch
     if ($LASTEXITCODE -ne 0) { throw 'GitHub Actions workflow dispatch failed.' }
     Write-Host 'Publish workflow dispatched. Monitor it in GitHub Actions.'
 }

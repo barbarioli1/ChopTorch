@@ -87,20 +87,20 @@ git push origin main
 
 **Check:** On GitHub, open the repository and confirm `gradle/wrapper/gradle-wrapper.jar` and `.github/workflows/publish-play-internal.yml` are visible on `main`.
 
-### Step 1.3: Pick the version numbers
+### Step 1.3: Set the release version
 
 **What:** Two numbers identify a release:
 
 | Name | Meaning | Where |
 | --- | --- | --- |
-| `versionCode` | Whole number that must go **up** every upload. Never reuse one. | The workflow asks for it as an input. |
-| `versionName` | Text shown to users, such as `2.2`. | `app/build.gradle` |
+| `versionCode` | Whole number that must go **up** every upload. Never reuse one. | The workflows select the next code after active Play releases and GitHub shipping releases. |
+| `versionName` | Text shown to users, such as `2.2`. | Play uses `app/build.gradle`; the GitHub APK workflow derives it from the release tag. |
 
-The project requires `versionCode` of at least `4`. For your first upload, use `4`.
+The project requires `versionCode` of at least `4`. The workflows use `5` if no Play or GitHub release codes are found; otherwise they select one higher than the highest active Play track or GitHub shipping release code. Play's API does not expose the complete history of removed releases, so check the Play Console if the app has prior retired or manually uploaded bundles with a higher code.
 
 **Why:** Play rejects an upload whose `versionCode` is not higher than all earlier ones.
 
-**Check:** Write down the `versionCode` you will use in the workflow later.
+**Check:** The workflow summary and build log show the selected `versionCode` for each run.
 
 ---
 

@@ -21,6 +21,9 @@ gradle/wrapper/gradle-wrapper.jar
 /choptorch_training_examples_backup.json
 /app/src/main/assets/choptorch_model*.json
 /app/trainingAssets/*.json
+!/app/trainingAssets/choptorch_seed_examples_empty.json
 
 docs/publish-to-google-play-tutorial.md
 docs/google-play-shipping-checklist.md
+docs/google-play-shipping-checklist.md
+docs/publish-to-google-play-tutorial.md

@@ -13,6 +13,7 @@ ChopTorch is an Android app that recognizes a double-chop motion from the accele
 - [Android and Google Play readiness](features/android-play-readiness.md): architecture, testing, policy, release, and operational procedures for distribution.
 - [Google Play shipping checklist](google-play-shipping-checklist.md): release-candidate checks, signing, CI publishing, Play Console setup, internal testing, and staged rollout.
 - [Publish to Google Play tutorial](publish-to-google-play-tutorial.md): step-by-step walkthrough of the shipping checklist, from upload key to staged rollout.
+- [GitHub shipping release](github-shipping-release.md): publish a signed shipping APK with release notes from the VS Code terminal.
 
 ## Current verification
 

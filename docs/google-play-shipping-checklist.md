@@ -13,7 +13,7 @@ Use this checklist to take a reviewed ChopTorch release candidate from the repos
 - [ ] Add or run release-relevant tests for permission grant/denial/revocation, service start/stop, notification actions, model-load failure, torch/sensor unavailability, and lifecycle cleanup; record any explicitly accepted gaps.
 - [ ] Verify the shipping model asset and record its hash and provenance.
 - [ ] Check the current Play target API requirement, app-bundle requirements, account-specific testing requirements, and developer-account status in Play Console.
-- [ ] Choose a `versionCode` greater than the latest code in Play Console and no lower than the project minimum of `4`. Never reuse a previously uploaded version code.
+- [ ] Confirm the publishing workflows can read Google Play tracks and GitHub Releases. They select one greater than the highest active Play track or recorded GitHub shipping release version code, with a minimum of `5`; Play's API does not expose a complete history of removed releases, so investigate any manually uploaded or retired releases if they may have higher codes.
 - [ ] Set the release `versionName` in `app/build.gradle` and verify the resulting artifact's version values.
 
 ## 2. Signing and key custody
@@ -50,7 +50,7 @@ Use this checklist to take a reviewed ChopTorch release candidate from the repos
 ## 5. Internal testing release
 
 - [ ] Confirm the reviewed release commit is on `main` or `master` and all required GitHub environment values are configured.
-- [ ] In GitHub Actions, dispatch **Publish shipping AAB to Play internal testing** with the unused `version_code` selected above.
+- [ ] In GitHub Actions, dispatch **Publish shipping AAB to Play internal testing**. The workflow looks up active releases across all tracks and selects the next version code automatically.
 - [ ] Confirm the workflow passes core tests, builds the signed shipping release AAB, authenticates through Workload Identity Federation, and uploads to the **internal** track.
 - [ ] Retain the workflow run URL, source revision, version code, AAB identity/hash, model hash, and upload result. The expected build output is `app/build/outputs/bundle/release/app-release.aab`.
 - [ ] Confirm Play Console shows the release on the internal track and review processing, artifact details, policy notices, and pre-launch report.
