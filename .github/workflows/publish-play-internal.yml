@@ -8,7 +8,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: google-play-internal-publish
+  group: choptorch-version-code-allocation
   cancel-in-progress: false
 
 jobs:
@@ -96,6 +96,7 @@ jobs:
       - name: Select next Play version code
         env:
           PLAY_API_TOKEN: ${{ steps.auth-for-version-lookup.outputs.access_token }}
+          GH_TOKEN: ${{ github.token }}
           PACKAGE_NAME: com.barbarioli1.choptorch
         run: |
           set -euo pipefail
@@ -122,6 +123,12 @@ jobs:
             "$api/edits/$edit_id/tracks")
           latest_code=$(jq --exit-status --raw-output \
             '[.tracks[]?.releases[]?.versionCodes[]? | tonumber] | max // 0' <<< "$tracks")
+          latest_github_code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].body // ""' \
+            | grep --only-matching --extended-regexp '<!-- choptorch-version-code: [0-9]+ -->' \
+            | grep --only-matching --extended-regexp '[0-9]+' \
+            | sort --numeric-sort | tail --lines=1 || true)
+          latest_github_code=${latest_github_code:-0}
+          if (( latest_github_code > latest_code )); then latest_code=$latest_github_code; fi
           if (( latest_code >= 2100000000 )); then
             echo "::error::The highest active Play version code ($latest_code) has reached Android's limit."
             exit 1
@@ -132,9 +139,9 @@ jobs:
           echo "VERSION_CODE=$version_code" >> "$GITHUB_ENV"
           {
             echo "### Play version code"
-            echo "Selected version code: $version_code (highest active track code: $latest_code)."
+            echo "Selected version code: $version_code (highest Play or GitHub release code: $latest_code)."
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "Selected Play version code $version_code (highest active track code: $latest_code)."
+          echo "Selected Play version code $version_code (highest Play or GitHub release code: $latest_code)."
           curl --fail-with-body --silent --show-error \
             --request DELETE \
             --header "Authorization: Bearer $PLAY_API_TOKEN" \

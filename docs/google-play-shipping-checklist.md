@@ -13,7 +13,7 @@ Use this checklist to take a reviewed ChopTorch release candidate from the repos
 - [ ] Add or run release-relevant tests for permission grant/denial/revocation, service start/stop, notification actions, model-load failure, torch/sensor unavailability, and lifecycle cleanup; record any explicitly accepted gaps.
 - [ ] Verify the shipping model asset and record its hash and provenance.
 - [ ] Check the current Play target API requirement, app-bundle requirements, account-specific testing requirements, and developer-account status in Play Console.
-- [ ] Confirm the publishing workflow can read Google Play tracks. It selects one greater than the highest version code in active track releases, with a minimum of `5`; Play's API does not expose a complete history of removed releases, so investigate any manually uploaded or retired releases if they may have higher codes.
+- [ ] Confirm the publishing workflows can read Google Play tracks and GitHub Releases. They select one greater than the highest active Play track or recorded GitHub shipping release version code, with a minimum of `5`; Play's API does not expose a complete history of removed releases, so investigate any manually uploaded or retired releases if they may have higher codes.
 - [ ] Set the release `versionName` in `app/build.gradle` and verify the resulting artifact's version values.
 
 ## 2. Signing and key custody

@@ -7,8 +7,13 @@ def shipping = providers.gradleProperty('shipping').map { it.toBoolean() }.getOr
 def defaultVersionCode = 4
 def requestedVersionCode = providers.gradleProperty('versionCode').orNull
 def appVersionCode = requestedVersionCode == null ? defaultVersionCode : Integer.parseInt(requestedVersionCode)
+def requestedVersionName = providers.gradleProperty('versionName').orNull
+def appVersionName = requestedVersionName == null ? '2.2' : requestedVersionName
 if (appVersionCode < defaultVersionCode) {
     throw new GradleException("versionCode must be at least ${defaultVersionCode}.")
+}
+if (appVersionName.trim().isEmpty()) {
+    throw new GradleException('versionName must not be empty.')
 }
 def uploadKeystorePath = providers.environmentVariable('ANDROID_UPLOAD_KEYSTORE_PATH').orNull
 def uploadKeystorePassword = providers.environmentVariable('ANDROID_UPLOAD_KEYSTORE_PASSWORD').orNull
@@ -71,7 +76,7 @@ android {
         minSdk 26
         targetSdk 36
         versionCode appVersionCode
-        versionName '2.2'
+        versionName appVersionName
         buildConfigField 'boolean', 'ENABLE_TRAINING', shipping ? 'false' : 'true'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
