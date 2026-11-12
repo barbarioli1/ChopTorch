@@ -36,7 +36,7 @@
     <p>Monitoring starts only after you start it in the app and can be stopped from the persistent notification. Android, battery settings, or device-specific policies may still interrupt monitoring.</p>
 
     <h2>Information stored on your device</h2>
-    <p>The production app stores your vibration-feedback preference in app-private storage. It includes a pretrained model in the app package; that model is not a record of your personal movements. Production diagnostics do not write sensor samples to Android logs.</p>
+    <p>The production app stores your vibration-feedback preference in app-private storage. It includes a pretrained model in the app package; that model is not a record of your personal movements. The app can write operational timing and flashlight-state messages to the Android system log; it does not log raw sensor samples or transmit these messages.</p>
     <p>The app disables Android backup and device-transfer backup for its private data. You can remove locally stored app data using Android Settings &gt; Apps &gt; ChopTorch &gt; Storage &gt; Clear storage, or by uninstalling the app. Android controls the lifecycle of temporary system logs and operating-system data.</p>
     <p>Development builds distributed from the source repository may enable optional local training and sample export. Those development-only features are disabled in the production Google Play build.</p>
 

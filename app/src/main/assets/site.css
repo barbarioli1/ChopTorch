@@ -1,0 +1,16 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 20px;
+  background: #f5f7f4;
+  color: #172321;
+  font: 16px/1.6 sans-serif;
+}
+main { max-width: 720px; margin: auto; }
+h1 { font-size: 27px; line-height: 1.2; }
+h2 { margin: 26px 0 6px; font-size: 19px; line-height: 1.3; }
+p, ul { margin: 10px 0; }
+li { margin: 8px 0; }
+a { color: #176d52; text-underline-offset: 3px; }
+nav { margin: 14px 0; }
+.date { color: #50615d; }

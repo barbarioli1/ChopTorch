@@ -31,6 +31,9 @@ uses battery power.
 The shipping application ID is `com.barbarioli1.choptorch`. Development builds
 use `com.example.choptorch.devclassic` and have optional training features.
 
+The app has no third-party runtime library dependencies. AndroidX test libraries
+are used only by the test configuration; they are licensed under Apache 2.0.
+
 ## Offline recognition and local data
 
 Accelerometer and gyroscope readings are used only while monitoring or recording
