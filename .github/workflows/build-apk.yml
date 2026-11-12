@@ -31,7 +31,7 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android platform API 36
-        run: sdkmanager 'platforms/android-36' 'build-tools/35.0.0' 'platform-tools'
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
 
       - name: Restore private model and training samples
         env:

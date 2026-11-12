@@ -69,7 +69,7 @@ android {
         // Keep the existing v1 install (and its examples) safe alongside v2 dev.
         if (!shipping) applicationIdSuffix '.devclassic'
         minSdk 26
-        targetSdk 35
+        targetSdk 36
         versionCode appVersionCode
         versionName '2.2'
         buildConfigField 'boolean', 'ENABLE_TRAINING', shipping ? 'false' : 'true'

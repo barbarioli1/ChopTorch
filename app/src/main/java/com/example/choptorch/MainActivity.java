@@ -27,6 +27,10 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -405,11 +409,13 @@ public final class MainActivity extends Activity implements SensorEventListener 
             "Permissions & setup", "Camera and notification access", this::showPermissionsPage,
             R.id.row_permissions, CONFIGURATION_TEAL);
 
-        sectionTitle("DETECTION", CONFIGURATION_TEAL);
-        LinearLayout detectionCard = card();
-        addSettingsRow(detectionCard, android.R.drawable.ic_menu_info_details,
+        if (BuildConfig.ENABLE_TRAINING) {
+            sectionTitle("DETECTION", CONFIGURATION_TEAL);
+            LinearLayout detectionCard = card();
+            addSettingsRow(detectionCard, android.R.drawable.ic_menu_info_details,
                 "Detection & model", "Model and personal training", this::showDetectionModel,
                 R.id.row_detection_model, CONFIGURATION_TEAL);
+        }
 
             sectionTitle("FEEDBACK", CONFIGURATION_TEAL);
             LinearLayout feedbackCard = card();
@@ -501,7 +507,42 @@ public final class MainActivity extends Activity implements SensorEventListener 
         catch (PackageManager.NameNotFoundException missing) { version = "Unavailable"; }
         aboutCard.addView(spacedText("Version " + version, 14, MUTED, 8));
         aboutCard.addView(spacedText("Motion data and gesture recognition are processed locally on this device.", 14, WHITE, 16));
+        aboutCard.addView(button("Privacy Policy / Política de Privacidade", false, this::showPrivacyPolicy));
         updateLabels();
+    }
+
+    private void showPrivacyPolicy() {
+        WebView policy = new WebView(this);
+        policy.setBackgroundColor(0xFFF5F7F4);
+        WebSettings settings = policy.getSettings();
+        settings.setJavaScriptEnabled(false);
+        settings.setDomStorageEnabled(false);
+        settings.setAllowFileAccess(true);
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
+        policy.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri target = request.getUrl();
+                if ("file".equals(target.getScheme())) return false;
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, target));
+                } catch (ActivityNotFoundException ignored) { }
+                return true;
+            }
+        });
+        policy.loadUrl("file:///android_asset/privacy.html");
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Privacy Policy / Política de Privacidade")
+                .setView(policy)
+                .setPositiveButton("Close", null)
+                .create();
+        dialog.setOnDismissListener(ignored -> policy.destroy());
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(
+                    Math.round(getResources().getDisplayMetrics().widthPixels * 0.94f),
+                    Math.round(getResources().getDisplayMetrics().heightPixels * 0.78f));
+        }
     }
 
     private void showBatterySettingsPage() {

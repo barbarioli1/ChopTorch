@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Política de Privacidade — ChopTorch</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Política de Privacidade — ChopTorch</h1>
+      <p class="date">Última atualização: 11 de novembro de 2026</p>
+      <nav aria-label="Idioma">
+        <a href="privacy.html" lang="en">English</a>
+      </nav>
+    </header>
+    <p>Esta política se aplica ao aplicativo de produção <strong>ChopTorch: Shake Flashlight</strong> no Google Play (pacote <code>com.barbarioli1.choptorch</code>), desenvolvido por Guilherme Barbarioli. Contato para privacidade e suporte: <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
+
+    <h2>Sensores de movimento e processamento local</h2>
+    <p>Quando você inicia o monitoramento por gestos, o ChopTorch lê dados do acelerômetro e do giroscópio para reconhecer o movimento de corte duplo. O app processa essas leituras no dispositivo para calcular características do movimento e executar o modelo de rede neural incluído. Esse acesso local aos sensores é necessário para o recurso; não significa coleta de dados enviada a um servidor.</p>
+    <p>A versão de produção não salva leituras brutas de movimento nem exemplos de gestos. O histórico de sensores usado na detecção fica temporariamente na memória. Treinamento pessoal, captura de feedback e exportação de modelos/exemplos ficam desativados na versão de produção.</p>
+
+    <h2>Permissões e recursos do dispositivo</h2>
+    <ul>
+      <li><strong>Câmera:</strong> usada pela API de lanterna do Android para ligar ou desligar o flash. O ChopTorch não captura fotos ou vídeos.</li>
+      <li><strong>Acelerômetro e giroscópio:</strong> lidos enquanto o monitoramento está ativo para detectar o gesto. Esses sensores não exigem solicitação de permissão em tempo de execução no Android.</li>
+      <li><strong>Serviço em primeiro plano e serviço de uso especial:</strong> mantêm o monitoramento iniciado pelo usuário ativo enquanto o app não está em primeiro plano, inclusive com a tela bloqueada.</li>
+      <li><strong>Notificações:</strong> exibem a notificação persistente do monitoramento e a ação Parar. O Android 13 ou posterior pode solicitar permissão para notificações.</li>
+      <li><strong>Wake lock:</strong> mantém a CPU disponível durante o monitoramento de sensores que não são ativados pela tela desligada. Isso pode aumentar o consumo de bateria.</li>
+      <li><strong>Vibração:</strong> pode confirmar mudanças no estado da lanterna. Você pode desativar esse retorno no app.</li>
+    </ul>
+    <p>O monitoramento só começa quando você o inicia no app e pode ser interrompido pela ação Parar na notificação persistente. O Android, as configurações de bateria ou políticas específicas do dispositivo ainda podem interromper o monitoramento.</p>
+
+    <h2>Informações armazenadas no dispositivo</h2>
+    <p>A versão de produção armazena a preferência de vibração no espaço privado do app. O pacote inclui um modelo pré-treinado; ele não é um registro dos movimentos pessoais do usuário. O app pode gravar mensagens operacionais de tempo e estado da lanterna no log do sistema Android; não registra amostras brutas dos sensores nem transmite essas mensagens.</p>
+    <p>O app desativa o backup do Android e a transferência dos dados privados para outro dispositivo. Você pode apagar dados locais em Configurações do Android &gt; Apps &gt; ChopTorch &gt; Armazenamento &gt; Limpar armazenamento, ou desinstalando o app. O Android controla o ciclo de vida de logs temporários do sistema e de outros dados do sistema operacional.</p>
+    <p>Builds de desenvolvimento podem habilitar treinamento local opcional e exportação de amostras. Esses recursos ficam desativados na versão de produção do Google Play.</p>
+
+    <h2>Envio, compartilhamento e terceiros</h2>
+    <p>O app de produção não solicita permissão de Internet e não inclui SDKs de publicidade, análise, rastreamento, relatórios de falhas ou transmissão de dados. Ele não envia leituras dos sensores, informações pessoais ou eventos de uso para servidores do ChopTorch nem os compartilha com terceiros. O app não possui contas de usuário.</p>
+    <p>Se você entrar em contato com o suporte, seu aplicativo de e-mail fará essa ação conforme os próprios termos de privacidade; o ChopTorch não faz essa solicitação de rede.</p>
+
+    <h2>Crianças e alterações</h2>
+    <p>O ChopTorch é uma ferramenta de uso geral e não foi desenvolvido especificamente para crianças. Esta política poderá ser atualizada se as práticas de dados do app mudarem. A versão mais recente e a data de atualização estarão no site do projeto.</p>
+
+    <h2>Contato</h2>
+    <p>Para dúvidas sobre privacidade ou suporte, escreva para <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
+  </main>
+</body>
+</html>
