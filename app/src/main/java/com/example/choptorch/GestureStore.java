@@ -7,6 +7,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -98,20 +99,28 @@ public final class GestureStore {
 
     private static List<TinyNeuralNet.Example> readSeedExamples(Context context) {
         List<TinyNeuralNet.Example> restored = new ArrayList<>();
-        try (InputStream input = context.getAssets().open("choptorch_seed_examples.json")) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            byte[] buffer = new byte[4096];
-            int n;
-            while ((n = input.read(buffer)) != -1) bytes.write(buffer, 0, n);
-            JSONObject seed = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
-            if (seed.getInt("featureCount") != TinyNeuralNet.INPUT)
-                throw new JSONException("Wrong training feature version");
-            JSONArray samples = seed.getJSONArray("examples");
-            for (int i = 0; i < samples.length(); i++) {
-                JSONObject sample = samples.getJSONObject(i);
-                restored.add(new TinyNeuralNet.Example(
-                        toDoubles(sample.getJSONArray("x"), TinyNeuralNet.INPUT),
-                        sample.getBoolean("positive")));
+        try {
+            InputStream seedInput;
+            try {
+                seedInput = context.getAssets().open("choptorch_seed_examples.json");
+            } catch (IOException missingConfiguredSeed) {
+                seedInput = context.getAssets().open("choptorch_seed_examples_empty.json");
+            }
+            try (InputStream input = seedInput) {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                int n;
+                while ((n = input.read(buffer)) != -1) bytes.write(buffer, 0, n);
+                JSONObject seed = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+                if (seed.getInt("featureCount") != TinyNeuralNet.INPUT)
+                    throw new JSONException("Wrong training feature version");
+                JSONArray samples = seed.getJSONArray("examples");
+                for (int i = 0; i < samples.length(); i++) {
+                    JSONObject sample = samples.getJSONObject(i);
+                    restored.add(new TinyNeuralNet.Example(
+                            toDoubles(sample.getJSONArray("x"), TinyNeuralNet.INPUT),
+                            sample.getBoolean("positive")));
+                }
             }
         } catch (Exception ignored) { restored.clear(); }
         return restored;

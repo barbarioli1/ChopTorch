@@ -66,17 +66,15 @@ are disabled for the app's private data.
 ## Build and test
 
 Open the repository root in Android Studio, use JDK 17, and sync with Gradle.
-Build the development variant for testing. A local development or shipping build
-needs the private model asset at `app/src/main/assets/choptorch_model.json`;
-development builds may also use `app/trainingAssets/choptorch_seed_examples.json`.
-These model and example files are intentionally excluded from the public Git
-repository and must not be added to commits.
+Build the development variant for testing. A clean checkout includes an empty
+seed JSON so no example data needs to be created or edited before building. In
+the dev app, open Training, record real movements, and label them; the app
+extracts and saves the feature vectors automatically. Training requires at least
+6 positive and 6 negative examples. If no pretrained model is configured,
+gesture monitoring becomes available after you train one.
 
-The GitHub Actions **Build Android APK** workflow restores these files from the
-private Actions secrets `CHOPTORCH_MODEL_JSON` and
-`CHOPTORCH_SEED_EXAMPLES_JSON`. APK artifacts are uploaded only for private
-repositories. The separate Play publishing workflow requires upload-signing
-secrets and Google Play Workload Identity Federation configuration.
+Shipping builds require the pretrained model asset at
+`app/src/main/assets/choptorch_model.json`, bundled for offline recognition.
 
 Run the core tests from a Bash shell:
 

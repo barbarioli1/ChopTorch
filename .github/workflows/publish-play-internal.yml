@@ -2,11 +2,6 @@ name: Publish shipping AAB to Play internal testing
 
 on:
   workflow_dispatch:
-    inputs:
-      version_code:
-        description: Must be greater than the latest version code in Google Play
-        required: true
-        type: number
 
 permissions:
   contents: read
@@ -89,19 +84,78 @@ jobs:
           set -euo pipefail
           printf '%s' "$CHOPTORCH_MODEL_JSON" > app/src/main/assets/choptorch_model.json
 
+      - name: Authenticate to Google Play for version lookup
+        id: auth-for-version-lookup
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+
+      - name: Select next Play version code
+        env:
+          PLAY_API_TOKEN: ${{ steps.auth-for-version-lookup.outputs.access_token }}
+          PACKAGE_NAME: com.barbarioli1.choptorch
+        run: |
+          set -euo pipefail
+          api="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/$PACKAGE_NAME"
+          edit_id=''
+          cleanup_edit() {
+            if [[ -n "$edit_id" ]]; then
+              curl --silent --show-error --request DELETE \
+                --header "Authorization: Bearer $PLAY_API_TOKEN" \
+                "$api/edits/$edit_id" >/dev/null || true
+            fi
+          }
+          trap cleanup_edit EXIT
+
+          edit=$(curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $PLAY_API_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{}' \
+            "$api/edits")
+          edit_id=$(jq --exit-status --raw-output '.id' <<< "$edit")
+          tracks=$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $PLAY_API_TOKEN" \
+            "$api/edits/$edit_id/tracks")
+          latest_code=$(jq --exit-status --raw-output \
+            '[.tracks[]?.releases[]?.versionCodes[]? | tonumber] | max // 0' <<< "$tracks")
+          if (( latest_code >= 2100000000 )); then
+            echo "::error::The highest active Play version code ($latest_code) has reached Android's limit."
+            exit 1
+          fi
+          version_code=$(( latest_code + 1 ))
+          if (( version_code < 5 )); then version_code=5; fi
+
+          echo "VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          {
+            echo "### Play version code"
+            echo "Selected version code: $version_code (highest active track code: $latest_code)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Selected Play version code $version_code (highest active track code: $latest_code)."
+          curl --fail-with-body --silent --show-error \
+            --request DELETE \
+            --header "Authorization: Bearer $PLAY_API_TOKEN" \
+            "$api/edits/$edit_id" >/dev/null
+          edit_id=''
+
       - name: Build signed shipping bundle
         env:
-          VERSION_CODE: ${{ inputs.version_code }}
           ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
         run: bash ./gradlew --no-daemon --stacktrace bundleRelease -Pshipping=true -PversionCode="$VERSION_CODE"
 
-      - name: Authenticate to Google Play with Workload Identity Federation
+      - name: Authenticate to Google Play for upload
+        id: auth-for-upload
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
           create_credentials_file: true
           export_environment_variables: true
 
