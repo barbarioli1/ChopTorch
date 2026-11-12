@@ -1,75 +1,108 @@
-# ChopTorch v2.2 — original v2 detector, 1.6-second cooldown
+# ChopTorch: Shake Flashlight
 
-This update **reverses the v2.1 detection experiments** and restores the v2
-recognition behavior, changing **only the 3,000 ms cooldown to 1,600 ms**.
+ChopTorch is an independent Android flashlight app that toggles the rear torch
+when it recognizes a double-chop motion. Motion recognition runs locally using
+the phone's accelerometer, gyroscope, and a small bundled neural-network model.
 
-## Detector settings (restored)
+The production app has no user accounts, ads, or app-to-server data transmission.
+Read the [privacy policy in English](docs/privacy.html) or
+[Português (Brasil)](docs/privacy-pt.html). The source code is licensed under
+the [MIT License](LICENSE).
 
-- **1,900 ms** sensor feature window; original **27 features**, Kalman fusion,
-  trained model and **0.82** probability threshold unchanged.
-- Predictions **every 160 ms**, requiring **two consecutive positive checks**.
-- **1,600 ms** cooldown between accepted detections (formerly 3,000 ms).
-- The original v2 sensor callback registration is restored, with no dedicated
-  `HandlerThread` and no freshness/peak-event gating from v2.1.
+## Features
 
-The **recovered-example duplicate fix** from v2.1 is intentionally retained:
-first-launch restoration loads the 19 original gestures once (7 positive, 12
-negative) and can repair an exact duplicated seed from v2 without deleting any
-additional recordings. The original pretrained weights are still bundled.
-Background monitoring, false-positive feedback, training, model export, and
-shipping mode are retained.
+- Toggle the flashlight with a double-chop gesture.
+- Run gesture recognition offline on the device.
+- Start monitoring from the app and stop it from the persistent Android
+   notification.
+- Use optional vibration feedback when flashlight state changes.
+- Install the shipping app separately from the development app.
 
-## Building via GitHub Actions
+Background operation is not guaranteed. Android, battery settings, and
+device-specific policies may interrupt monitoring. Continuous sensor monitoring
+uses battery power.
 
-1. Replace your GitHub repository files with the contents of the `ChopTorch`
-   folder, including `.github/workflows/build-apk.yml`.
-2. In **Actions → Build Android APK → Run workflow**, leave `shipping` unchecked.
-3. Download the generated `ChopTorch-debug-apk` artifact; extract and install
-   `app-debug.apk`.
-4. Start monitoring and test two chops. Android sensor delivery, camera torch
-   hardware, and battery policies still affect real-world timing.
+## Requirements
 
-**Installation safety:** Development builds use the distinct application ID
-`com.example.choptorch.devclassic`. This means the test APK installs **alongside**
-v1 (`com.example.choptorch`), v2 (`.dev`), and v2.1 (`.devfast`) rather than
-risking their saved model/data with a new GitHub debug signing certificate.
-On a new v2.2 install, the 19 recovered examples and original v1-trained model
-are preloaded. Extra feedback/training you recorded in the other builds is
-**not** automatically imported. Do not uninstall the old builds until you have
-exported anything you want to keep.
+- Android 8.0 (API 26) or later.
+- A rear camera flash, accelerometer, and gyroscope for the primary feature.
+- Android SDK 36 and JDK 17 to build with the repository's current configuration.
 
-## Shipping mode
+The shipping application ID is `com.barbarioli1.choptorch`. Development builds
+use `com.example.choptorch.devclassic` and have optional training features.
 
-For GitHub builds, add repository Actions secrets named `CHOPTORCH_MODEL_JSON`
-and `CHOPTORCH_SEED_EXAMPLES_JSON`. Set them from the local files with GitHub CLI:
+## Offline recognition and local data
 
-```powershell
-Get-Content -Raw 'app/src/main/assets/choptorch_model.json' | gh secret set CHOPTORCH_MODEL_JSON
-Get-Content -Raw 'app/trainingAssets/choptorch_seed_examples.json' | gh secret set CHOPTORCH_SEED_EXAMPLES_JSON
+Accelerometer and gyroscope readings are used only while monitoring or recording
+training examples in a development build. Production recognition runs locally;
+the shipping build disables personal training, false-positive feedback, and
+model/example export. It stores the vibration preference in app-private storage
+and includes the pretrained model in the app package. Operational timing and
+flashlight-state messages may be written to Android's local system log; raw
+sensor samples are not logged or transmitted by the production build.
+
+Development builds may save gesture features, examples, and trained weights in
+app-private storage. The training UI can export examples or a model and erase
+training data. Clearing ChopTorch storage in Android Settings or uninstalling it
+removes the app's local private data. Android backup and device-transfer backup
+are disabled for the app's private data.
+
+## Permissions
+
+- `CAMERA`: control the flashlight through Android's camera torch API; the app
+   does not take photos or video.
+- `VIBRATE`: optional flashlight-state feedback.
+- `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_SPECIAL_USE`: user-started
+   continuous gesture monitoring while the app is not visible.
+- `POST_NOTIFICATIONS`: show the ongoing monitoring notification on Android
+   versions that require notification permission.
+- `WAKE_LOCK`: keep the CPU available while monitoring non-wake-up sensors.
+- Accelerometer and gyroscope access is provided by Android sensor APIs and does
+   not use a runtime permission prompt.
+
+## Build and test
+
+Open the repository root in Android Studio, use JDK 17, and sync with Gradle.
+Build the development variant for testing. A local development or shipping build
+needs the private model asset at `app/src/main/assets/choptorch_model.json`;
+development builds may also use `app/trainingAssets/choptorch_seed_examples.json`.
+These model and example files are intentionally excluded from the public Git
+repository and must not be added to commits.
+
+The GitHub Actions **Build Android APK** workflow restores these files from the
+private Actions secrets `CHOPTORCH_MODEL_JSON` and
+`CHOPTORCH_SEED_EXAMPLES_JSON`. APK artifacts are uploaded only for private
+repositories. The separate Play publishing workflow requires upload-signing
+secrets and Google Play Workload Identity Federation configuration.
+
+Run the core tests from a Bash shell:
+
+```sh
+bash tests/run-core-tests.sh
 ```
 
-The workflows restore these ignored files only on the runner. APK artifacts are
-uploaded only when the repository is private. The model must still be bundled
-inside the app to run offline, so someone with the APK can extract its weights;
-this protects the source repository and public workflow artifacts, not the model
-inside a distributed binary. Previously committed files also remain in Git
-history until that history is explicitly rewritten.
+The Play upload package is `com.barbarioli1.choptorch`; the development package
+is separate and does not share app data. Do not change the shipping application
+ID, signing key, or version code for an existing Play app without checking the
+consequences first.
 
-Export any newly trained model locally, then update the `CHOPTORCH_MODEL_JSON`
-secret before publishing. Run the workflow with
-`shipping` checked (or `gradle assembleDebug -Pshipping=true`) to disable
-training, feedback, and export; only the trained weights are shipped. Shipping
-uses `com.barbarioli1.choptorch`, separate from existing `com.example.choptorch`
-installs. Treat them as separate apps; saved data does not transfer between them.
-Use a stable release signing key before distributing the app.
+## Google Play materials
 
-## Google Play publishing
+- [Privacy policy](docs/privacy.html)
+- [Google Play submission notes](docs/google-play-submission.md)
+- [English and Brazilian Portuguese store listing](docs/store-listing.md)
+- [512 × 512 store icon](docs/choptorch-google-play-icon-512.png)
 
-Follow the [Google Play publishing tutorial](docs/publish-to-google-play-tutorial.md) for the full setup. The optional `scripts/setup-github-publish.ps1` configures GitHub secrets and, when requested, Google Cloud Workload Identity Federation from local `.env` settings. Keep `.env` and the upload keystore private. Publishing requires the secure workflow to be merged to `main`; Play Console account setup, service-account invitation, first upload, listing, and policy forms remain manual.
+GitHub Pages is prepared to publish from branch `main`, directory `/docs`. The
+expected privacy URL is
+`https://barbarioli1.github.io/ChopTorch/privacy.html`; it is not live until
+Pages is enabled and the URL is tested after deployment.
 
-## Checks
+## Contributing
 
-Run `bash tests/run-core-tests.sh`. These tests cover the original synthetic
-feature extraction/neural network and recovery deduplication; the detector's
-source has been compared against v2 and differs in the cooldown number only.
-The Android APK itself and real-device recognition have not been tested here.
+Use GitHub Issues to report bugs or propose changes. Please do not attach private
+motion recordings, model/example data, keystores, passwords, tokens, or other
+credentials to issues or pull requests. Test gesture behavior on real hardware;
+sensor delivery, flashlight hardware, and background policies vary by device.
+
+ChopTorch is an independent project and is not affiliated with Motorola.

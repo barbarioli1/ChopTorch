@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy Policy for ChopTorch: Shake Flashlight.">
+  <title>Privacy Policy — ChopTorch</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand">CHOPTORCH · PRIVACY</div>
+      <h1>Privacy Policy — ChopTorch</h1>
+      <p class="lead">Last updated: November 11, 2026</p>
+      <nav aria-label="Language and project links">
+        <a href="index.html">Project home</a>
+        <a href="privacy-pt.html" lang="pt-BR">Português (Brasil)</a>
+      </nav>
+    </header>
+    <p>This policy applies to the production Google Play app <strong>ChopTorch: Shake Flashlight</strong> (package <code>com.barbarioli1.choptorch</code>), developed by Guilherme Barbarioli. Privacy and support contact: <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
+
+    <h2>Motion sensors and local processing</h2>
+    <p>When you start gesture monitoring, ChopTorch reads accelerometer and gyroscope values to recognize the double-chop motion. It processes these readings on your device to calculate motion features and run the bundled neural-network model. This local sensor access is necessary for the feature; it is not data collection sent to a server.</p>
+    <p>The production build does not save raw motion readings or gesture examples. Sensor history used for detection is held temporarily in memory. Personal training, feedback capture, and model/example export are disabled in the production build.</p>
+
+    <h2>Permissions and device features</h2>
+    <ul>
+      <li><strong>Camera:</strong> used through Android's camera torch API to switch the flashlight on or off. ChopTorch does not capture photos or video.</li>
+      <li><strong>Accelerometer and gyroscope:</strong> read while monitoring is active to detect the gesture. These sensor features do not require a runtime permission prompt on Android.</li>
+      <li><strong>Foreground service and special-use foreground service:</strong> keep user-started gesture monitoring active while the app is not in the foreground, including when the display is locked.</li>
+      <li><strong>Notifications:</strong> display the ongoing monitoring notification and its Stop action. Android 13 and later may ask for notification permission.</li>
+      <li><strong>Wake lock:</strong> keep the CPU available while monitoring non-wake-up sensors. This can use additional battery.</li>
+      <li><strong>Vibration:</strong> optionally confirm flashlight state changes. You can turn vibration feedback off in the app.</li>
+    </ul>
+    <p>Monitoring starts only after you start it in the app and can be stopped from the persistent notification. Android, battery settings, or device-specific policies may still interrupt monitoring.</p>
+
+    <h2>Information stored on your device</h2>
+    <p>The production app stores your vibration-feedback preference in app-private storage. It includes a pretrained model in the app package; that model is not a record of your personal movements. Production diagnostics do not write sensor samples to Android logs.</p>
+    <p>The app disables Android backup and device-transfer backup for its private data. You can remove locally stored app data using Android Settings &gt; Apps &gt; ChopTorch &gt; Storage &gt; Clear storage, or by uninstalling the app. Android controls the lifecycle of temporary system logs and operating-system data.</p>
+    <p>Development builds distributed from the source repository may enable optional local training and sample export. Those development-only features are disabled in the production Google Play build.</p>
+
+    <h2>Data sent, sharing, and third parties</h2>
+    <p>The production app does not request the Internet permission and contains no advertising, analytics, tracking, crash-reporting, or other data-transmission SDK. It does not send sensor readings, personal information, or usage events to ChopTorch servers or share them with third parties. The app has no user accounts.</p>
+    <p>If you choose to open the online policy or contact support, your browser or email app handles that action under its own privacy terms; ChopTorch itself does not make that network request.</p>
+
+    <h2>Children and changes</h2>
+    <p>ChopTorch is a general-purpose utility and is not designed specifically for children. This policy may be updated if the app's data practices change. The latest version and its update date are published on this page.</p>
+
+    <h2>Contact</h2>
+    <p>For privacy questions or support, contact <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
+    <footer><a href="https://github.com/barbarioli1/ChopTorch/blob/main/LICENSE">MIT License</a> · <a href="https://github.com/barbarioli1/ChopTorch">Source repository</a></footer>
+  </main>
+</body>
+</html>
