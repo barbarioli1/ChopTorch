@@ -63,6 +63,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private static final String STATE_BATTERY_ALLOWLISTED = "battery_allowlisted_on_return";
     private static final String STATE_PERMISSION_ACTION = "monitoring_permission_action";
     private static final String STATE_SCREEN = "screen";
+    private static final String TEST_MONITORING_START_ATTEMPTED = "test_monitoring_start_attempted";
     private static final long WINDOW_MS = GestureDetector.WINDOW_MS;
     private static final int BG = 0xFF060809;
     private static final int CARD = 0xFF14191C;
@@ -171,6 +172,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
         handler.removeCallbacks(refresh);
         handler.post(refresh);
         restorePendingStartPrompt();
+        maybeStartMonitoringForTestPhase();
     }
 
     @Override protected void onPause() {
@@ -901,6 +903,20 @@ public final class MainActivity extends Activity implements SensorEventListener 
         }
         monitoringStartFlow.begin();
         askForCamera(2);
+    }
+
+    private void maybeStartMonitoringForTestPhase() {
+        if (!BuildConfig.TEST_PHASE_DEFAULTS_ON || !diagnostics.isEnabled()
+                || monitoringStartFlow.isPending() || GestureDetectionService.isRunning()) return;
+        android.content.SharedPreferences preferences = getPreferences(MODE_PRIVATE);
+        if (preferences.getBoolean(TEST_MONITORING_START_ATTEMPTED, false)) return;
+        preferences.edit().putBoolean(TEST_MONITORING_START_ATTEMPTED, true).apply();
+        handler.post(() -> {
+            if (resumed && diagnostics.isEnabled()
+                    && !monitoringStartFlow.isPending() && !GestureDetectionService.isRunning()) {
+                changeListening();
+            }
+        });
     }
 
     private void askForCamera(int action) {

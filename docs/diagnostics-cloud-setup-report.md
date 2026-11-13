@@ -29,7 +29,7 @@ Cloud setup was performed in the explicitly approved Firebase project `chop-torc
 
 ## Tested
 
-- Shipping diagnostics-enabled build passed: `./gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true`.
+- Closed-test default-on diagnostics build passed: `./gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true -PtestPhaseDefaultsOn=true`.
 - Android unit tests and instrumentation-test compilation passed: `./gradlew.bat :app:testDebugUnitTest :app:compileDebugAndroidTestJavaWithJavac`.
 - Firestore emulator suite passed all 3 tests under Temurin JDK 21.0.13 using the non-production demo project ID.
 - No Android device is attached; instrumentation and end-to-end upload tests have not run.

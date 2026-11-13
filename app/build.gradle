@@ -5,8 +5,12 @@ plugins {
 // Production is intentionally opt-in. The pretrained weights asset is mandatory in shipping mode.
 def shipping = providers.gradleProperty('shipping').map { it.toBoolean() }.getOrElse(false)
 def diagnosticsEnabled = providers.gradleProperty('diagnosticsEnabled').map { it.toBoolean() }.getOrElse(false)
+def testPhaseDefaultsOn = providers.gradleProperty('testPhaseDefaultsOn').map { it.toBoolean() }.getOrElse(false)
 if (diagnosticsEnabled && !shipping) {
     throw new GradleException('Remote diagnostics builds must use -Pshipping=true.')
+}
+if (testPhaseDefaultsOn && !(shipping && diagnosticsEnabled)) {
+    throw new GradleException('Test-phase defaults require -Pshipping=true and -PdiagnosticsEnabled=true.')
 }
 if (diagnosticsEnabled && !file('google-services.json').isFile()) {
     throw new GradleException('Remote diagnostics builds require the real app/google-services.json for this package.')
@@ -92,6 +96,7 @@ android {
         versionName appVersionName
         buildConfigField 'boolean', 'ENABLE_TRAINING', shipping ? 'false' : 'true'
         buildConfigField 'boolean', 'ENABLE_REMOTE_DIAGNOSTICS', diagnosticsEnabled ? 'true' : 'false'
+        buildConfigField 'boolean', 'TEST_PHASE_DEFAULTS_ON', testPhaseDefaultsOn ? 'true' : 'false'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
