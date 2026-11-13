@@ -84,6 +84,9 @@ From the repository root:
 
 # Closed-test compile/package; requires real matching google-services.json
 .\gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true
+
+# Closed-test group build; defaults ON when no saved opt-out exists
+.\gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true -PtestPhaseDefaultsOn=true
 ```
 
 The shipping diagnostics-enabled debug APK, Android unit tests, and instrumentation-test compilation passed on November 13, 2026. The build verifies an APK, not a Play-signed release. For a release artifact, configure the existing upload-signing environment variables (`ANDROID_UPLOAD_KEYSTORE_PATH`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`, `ANDROID_UPLOAD_KEY_PASSWORD`) outside the repository and run:
@@ -91,6 +94,8 @@ The shipping diagnostics-enabled debug APK, Android unit tests, and instrumentat
 ```powershell
 .\gradlew.bat :app:assembleRelease -Pshipping=true -PdiagnosticsEnabled=true
 ```
+
+For a signed closed-test release that defaults monitoring and diagnostics ON when no saved choice exists, add `-PtestPhaseDefaultsOn=true`. This test-only option requires both shipping mode and remote diagnostics; a previously saved opt-out remains OFF.
 
 Never paste signing secrets into chat, source code, shell history, or logs. Do not change the existing app ID or version code.
 

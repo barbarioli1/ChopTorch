@@ -31,7 +31,10 @@ public final class DiagnosticsUploadWorker extends Worker {
         long generation = consent.generation();
         DiagnosticsQueue queue = recorder.queueForWorker();
         List<DiagnosticsQueue.QueuedEvent> events = queue.oldest(20);
-        if (events.isEmpty()) return Result.success();
+        if (events.isEmpty()) {
+            recorder.setUploading(false);
+            return Result.success();
+        }
         try {
             String uid = FirebaseDiagnosticsClient.ensureAnonymousUser(AUTH_TIMEOUT_SECONDS);
             for (DiagnosticsQueue.QueuedEvent event : events) {
