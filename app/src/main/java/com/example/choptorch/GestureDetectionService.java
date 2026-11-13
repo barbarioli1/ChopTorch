@@ -19,6 +19,9 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.example.choptorch.diagnostics.DiagnosticEvent;
+import com.example.choptorch.diagnostics.DiagnosticsRecorder;
+
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -35,6 +38,7 @@ public final class GestureDetectionService extends Service implements SensorEven
     private static final boolean DIAGNOSTICS = BuildConfig.ENABLE_TRAINING;
     private static final long STATS_INTERVAL_NS = 5_000_000_000L;
     private static volatile boolean running;
+    private static volatile GestureDetectionService activeInstance;
     private static volatile double latestScore;
     private static volatile String lastError = "";
 
@@ -43,6 +47,7 @@ public final class GestureDetectionService extends Service implements SensorEven
     private SensorManager manager;
     private Sensor accelerometer, gyroscope;
     private TorchController torch;
+    private DiagnosticsRecorder diagnostics;
     private GestureStore store;
     private PowerManager.WakeLock wakeLock;
     private SensorDeliveryGuard accelGuard = new SensorDeliveryGuard();
@@ -68,11 +73,26 @@ public final class GestureDetectionService extends Service implements SensorEven
 
     @Override public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         store = GestureStore.shared(this);
+        diagnostics = DiagnosticsRecorder.get(this);
         manager = (SensorManager) getSystemService(SENSOR_SERVICE);
         accelerometer = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         gyroscope = manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
         torch = new TorchController(this, on -> { });
+        torch.setDiagnosticsListener(new TorchController.DiagnosticsListener() {
+            @Override public String onRequest(boolean desiredOn, long requestTimeNs) {
+                return diagnostics.onTorchRequested(desiredOn);
+            }
+            @Override public void onApiResult(String eventId, boolean success, String errorClass,
+                                              long requestTimeNs) {
+                if (eventId != null) diagnostics.onTorchApiResult(eventId, success, errorClass, requestTimeNs);
+            }
+            @Override public void onObservation(String eventId, boolean unavailable, boolean enabled,
+                                                long callbackTimeNs) {
+                if (eventId != null) diagnostics.onTorchObservation(eventId, unavailable, enabled, callbackTimeNs);
+            }
+        });
         NotificationManager notifications = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         notifications.createNotificationChannel(new NotificationChannel(CHANNEL,
                 "Gesture flashlight detection", NotificationManager.IMPORTANCE_LOW));
@@ -115,6 +135,7 @@ public final class GestureDetectionService extends Service implements SensorEven
             torch.initializeAfterPermission();
             if (!torch.hasFlash()) throw new IllegalStateException("Flashlight unavailable");
             detector.reset();
+            updateDiagnosticsObserver();
             accelGuard = new SensorDeliveryGuard();
             gyroGuard = new SensorDeliveryGuard();
             recovery = new SensorRecoveryCoordinator();
@@ -142,6 +163,8 @@ public final class GestureDetectionService extends Service implements SensorEven
             updateNotification();
         } catch (Exception e) {
             lastError = e.getMessage() == null ? "Unable to start sensors" : e.getMessage();
+            if (diagnostics.isEnabled()) diagnostics.recordState(DiagnosticEvent.builder(
+                    DiagnosticEvent.MONITOR_START_FAILURE).build());
             stopMonitoring();
             stopSelf();
         }
@@ -287,6 +310,9 @@ public final class GestureDetectionService extends Service implements SensorEven
 
     private boolean startRecovery(String reason, long nowNs, long ageNs, long gapNs) {
         if (!recovery.begin(reason)) return false;
+        diagnostics.flushAttempts();
+        if (diagnostics.isEnabled()) diagnostics.recordState(DiagnosticEvent.builder(
+            DiagnosticEvent.SENSOR_RECOVERY).recoveryEpisodeCount(recovery.episodeCount()).build());
         detector.resetForRecovery();
         lastDetectorResetNs = nowNs;
         lastPredictionEvaluatedAtNs = lastPositiveEvaluatedAtNs = lastPositiveEventMs = 0;
@@ -319,6 +345,7 @@ public final class GestureDetectionService extends Service implements SensorEven
         return String.format(Locale.US, "interactive=%b deviceIdle=%b powerSave=%b",
                 power.isInteractive(), power.isDeviceIdleMode(), power.isPowerSaveMode());
     }
+
 
     private void logSensorInventory() {
         describeSensor("accelerometer(default)", manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER));
@@ -375,6 +402,8 @@ public final class GestureDetectionService extends Service implements SensorEven
     }
 
     private void stopMonitoring() {
+        if (diagnostics != null) diagnostics.flushAttempts();
+        detector.setPredictionObserver(null);
         running = false;
         manager.unregisterListener(this);
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
@@ -384,8 +413,14 @@ public final class GestureDetectionService extends Service implements SensorEven
 
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) { }
     @Override public IBinder onBind(Intent intent) { return null; }
+    public static void updateDiagnosticsObserver() {
+        GestureDetectionService service = activeInstance;
+        if (service != null) service.detector.setPredictionObserver(service.diagnostics.isEnabled()
+                ? service.diagnostics::onPrediction : null);
+    }
     @Override public void onDestroy() {
         stopMonitoring();
+        if (activeInstance == this) activeInstance = null;
         torch.release();
         trainer.shutdown();
         super.onDestroy();

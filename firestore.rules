@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /diagnosticEvents/{uid}/events/{eventId} {
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && eventId.matches('^[0-9a-fA-F-]{36}$')
+        && request.resource.data.keys().hasOnly([
+          'schemaVersion', 'eventId', 'kind', 'createdAtEpochMs',
+          'appVersionName', 'appVersionCode',
+          'manufacturer', 'deviceModel', 'androidSdk', 'screenInteractive', 'powerSaveMode',
+          'maxScore', 'predictionCount', 'features', 'strongPeaks', 'peakGapMs', 'maxGyro',
+          'hasDoubleChopShape', 'passedActivationScoreAndShape', 'triggered',
+          'requestedTorchOn', 'torchOutcome', 'torchErrorClass',
+          'torchConfirmationLatencyMs', 'recoveryEpisodeCount', 'durationMs'
+        ])
+        && request.resource.data.keys().hasAll([
+          'schemaVersion', 'eventId', 'kind', 'createdAtEpochMs'
+        ])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.eventId == eventId
+        && request.resource.data.kind in [
+          'gesture_attempt', 'sensor_recovery', 'torch_error',
+          'missed_chop_report', 'monitor_start_failure'
+        ]
+        && (!('torchOutcome' in request.resource.data)
+          || request.resource.data.torchOutcome in [
+            'not_requested', 'api_error', 'api_returned_pending', 'confirmed_on',
+            'confirmed_off', 'unavailable', 'confirmation_timeout'
+          ])
+        && (!('maxScore' in request.resource.data)
+          || ((request.resource.data.maxScore is int || request.resource.data.maxScore is float)
+            && request.resource.data.maxScore >= 0
+            && request.resource.data.maxScore <= 1))
+        && (!('predictionCount' in request.resource.data)
+          || (request.resource.data.predictionCount is int
+            && request.resource.data.predictionCount >= 1
+            && request.resource.data.predictionCount <= 100))
+        && (!('features' in request.resource.data)
+          || (request.resource.data.features is list
+            && request.resource.data.features.size() == 27))
+        && (!('durationMs' in request.resource.data)
+          || (request.resource.data.durationMs is int
+            && request.resource.data.durationMs >= 0
+            && request.resource.data.durationMs <= 4000))
+        && request.resource.data.createdAtEpochMs is int;
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data == resource.data;
+      allow read, delete: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

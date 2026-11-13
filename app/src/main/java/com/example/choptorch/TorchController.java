@@ -13,9 +13,16 @@ import android.util.Log;
 public final class TorchController {
     private static final String TAG = "ChopTorch/Sensors";
     public interface Listener { void onTorchState(boolean on); }
+    public interface DiagnosticsListener {
+        String onRequest(boolean desiredOn, long requestTimeNs);
+        void onApiResult(String eventId, boolean success, String errorClass, long requestTimeNs);
+        void onObservation(String eventId, boolean unavailable, boolean enabled, long callbackTimeNs);
+    }
     private final Context appContext;
     private final CameraManager manager;
     private final Listener listener;
+    private volatile DiagnosticsListener diagnosticsListener;
+    private volatile String pendingDiagnosticEventId;
     private String flashCameraId;
     private boolean on;
     private boolean subscribed;
@@ -32,20 +39,28 @@ public final class TorchController {
             if (id.equals(flashCameraId)) {
                 boolean changed = hasReportedCameraState && lastReportedCameraState != enabled;
                 boolean matchesRequest = pendingFeedbackState != null && pendingFeedbackState == enabled;
-                if (matchesRequest) pendingFeedbackState = null;
+                String eventId = changed && matchesRequest ? pendingDiagnosticEventId : null;
+                if (matchesRequest) {
+                    pendingFeedbackState = null;
+                    pendingDiagnosticEventId = null;
+                }
                 hasReportedCameraState = true;
                 lastReportedCameraState = enabled;
                 on = enabled;
                 logConfirmedTorchState(enabled);
+                notifyObservation(eventId, false, enabled);
                 if (changed && matchesRequest) VibrationFeedback.confirmTorchState(appContext, enabled);
                 listener.onTorchState(enabled);
             }
         }
         @Override public void onTorchModeUnavailable(String id) {
             if (id.equals(flashCameraId)) {
+                String eventId = pendingDiagnosticEventId;
                 on = false;
                 hasReportedCameraState = false;
                 pendingFeedbackState = null;
+                pendingDiagnosticEventId = null;
+                notifyObservation(eventId, true, false);
                 if (BuildConfig.ENABLE_TRAINING) {
                     synchronized (TorchController.class) {
                         if (!torchUnavailable) {
@@ -91,6 +106,7 @@ public final class TorchController {
 
     public boolean hasFlash() { return flashCameraId != null; }
     public boolean isOn() { return on; }
+    public void setDiagnosticsListener(DiagnosticsListener observer) { diagnosticsListener = observer; }
 
     private static synchronized void logConfirmedTorchState(boolean enabled) {
         if (!BuildConfig.ENABLE_TRAINING
@@ -131,13 +147,39 @@ public final class TorchController {
     }
 
     private void requestTorchState(boolean desired) throws CameraAccessException {
+        long requestTimeNs = SystemClock.elapsedRealtimeNanos();
+        String eventId = null;
+        try {
+            if (diagnosticsListener != null) eventId = diagnosticsListener.onRequest(desired, requestTimeNs);
+        } catch (RuntimeException ignored) { }
+        pendingDiagnosticEventId = eventId;
         pendingFeedbackState = desired;
         try {
             manager.setTorchMode(flashCameraId, desired);
+            notifyApiResult(eventId, true, null, requestTimeNs);
         } catch (CameraAccessException | RuntimeException failure) {
+            notifyApiResult(eventId, false, failure.getClass().getSimpleName(), requestTimeNs);
             pendingFeedbackState = null;
+            pendingDiagnosticEventId = null;
             throw failure;
         }
+    }
+
+    private void notifyApiResult(String eventId, boolean success, String errorClass, long requestTimeNs) {
+        try {
+            if (eventId != null && diagnosticsListener != null) {
+                diagnosticsListener.onApiResult(eventId, success, errorClass, requestTimeNs);
+            }
+        } catch (RuntimeException ignored) { }
+    }
+
+    private void notifyObservation(String eventId, boolean unavailable, boolean enabled) {
+        try {
+            if (eventId != null && diagnosticsListener != null) {
+                diagnosticsListener.onObservation(eventId, unavailable, enabled,
+                        SystemClock.elapsedRealtimeNanos());
+            }
+        } catch (RuntimeException ignored) { }
     }
 
     public void release() {

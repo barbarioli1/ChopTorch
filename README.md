@@ -4,7 +4,10 @@ ChopTorch is an independent Android flashlight app that toggles the rear torch
 when it recognizes a double-chop motion. Motion recognition runs locally using
 the phone's accelerometer, gyroscope, and a small bundled neural-network model.
 
-The production app has no user accounts, ads, or app-to-server data transmission.
+The standard production build has no user-facing accounts or ads and does not
+collect or transmit diagnostics. A separately enabled closed-test build can
+optionally upload anonymous gesture diagnostics only after the tester turns
+sharing on in Settings. See the [step-by-step diagnostics guide](docs/diagnostics-next-steps.md).
 Read the [privacy policy in English](docs/privacy.html) or
 [Português (Brasil)](docs/privacy-pt.html). The source code is licensed under
 the [MIT License](LICENSE).

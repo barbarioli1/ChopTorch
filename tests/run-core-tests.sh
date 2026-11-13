@@ -12,13 +12,17 @@ javac -d "$OUT" "$SRC/MotionSample.java" "$SRC/AngleKalman.java" \
   "$SRC/SensorTimingStats.java" \
   "$SRC/MonitoringStartFlow.java" \
   "$SRC/RecoveredExampleDeduper.java" \
+  "$SRC/diagnostics/DiagnosticEvent.java" \
+  "$SRC/diagnostics/AttemptAggregator.java" \
   "$ROOT/tests/CoreSmokeTest.java" \
   "$ROOT/tests/com/example/choptorch/SeedDedupTest.java" \
   "$ROOT/tests/com/example/choptorch/MonitoringStartFlowTest.java" \
   "$ROOT/tests/com/example/choptorch/StreamingDetectorTest.java" \
-  "$ROOT/tests/com/example/choptorch/SensorDeliveryGuardTest.java"
+  "$ROOT/tests/com/example/choptorch/SensorDeliveryGuardTest.java" \
+  "$ROOT/tests/com/example/choptorch/diagnostics/AttemptAggregatorTest.java"
 java -cp "$OUT" CoreSmokeTest
 java -cp "$OUT" com.example.choptorch.SeedDedupTest
 java -cp "$OUT" com.example.choptorch.MonitoringStartFlowTest
 java -cp "$OUT" com.example.choptorch.StreamingDetectorTest
 java -cp "$OUT" com.example.choptorch.SensorDeliveryGuardTest
+java -cp "$OUT" com.example.choptorch.diagnostics.AttemptAggregatorTest
