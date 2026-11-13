@@ -11,6 +11,7 @@ public final class GestureDetector {
     private final MotionProcessor motion = new MotionProcessor();
     private final ArrayDeque<MotionSample> history = new ArrayDeque<>();
     private final Scorer scorer;
+    private PredictionObserver predictionObserver;
     private long lastPredictionAt, lastPositiveMatchAt, lastTriggeredAt;
     private int consecutiveHits;
     private double latestScore;
@@ -30,6 +31,39 @@ public final class GestureDetector {
             this.features = features.clone();
             this.score = score;
         }
+    }
+
+    public interface PredictionObserver { void onPrediction(Prediction prediction); }
+
+    public static final class Prediction {
+        public final double score;
+        public final double[] features;
+        public final boolean hasDoubleChopShape;
+        public final int strongPeaks;
+        public final long peakGapMs;
+        public final double maxGyro;
+        public final boolean passedActivationScoreAndShape;
+        public final int consecutiveHits;
+        public final boolean triggered;
+        public final long timeMs;
+
+        public Prediction(double score, GestureFeatures.Result result, boolean pass,
+                  int consecutiveHits, boolean triggered, long timeMs) {
+            this.score = score;
+            this.features = result.values.clone();
+            this.hasDoubleChopShape = result.hasDoubleChopShape;
+            this.strongPeaks = result.strongPeaks;
+            this.peakGapMs = result.peakGapMs;
+            this.maxGyro = result.maxGyro;
+            this.passedActivationScoreAndShape = pass;
+            this.consecutiveHits = consecutiveHits;
+            this.triggered = triggered;
+            this.timeMs = timeMs;
+        }
+    }
+
+    public void setPredictionObserver(PredictionObserver observer) {
+        predictionObserver = observer;
     }
 
     public void reset() {
@@ -70,10 +104,20 @@ public final class GestureDetector {
         boolean pass = result.hasDoubleChopShape && latestScore >= THRESHOLD;
         if (pass) lastPositiveMatchAt = sample.timeMs;
         consecutiveHits = pass ? consecutiveHits + 1 : 0;
-        if (consecutiveHits < 2 || sample.timeMs - lastTriggeredAt < 1600) return null;
-        consecutiveHits = 0;
-        lastTriggeredAt = sample.timeMs;
-        return new Detection(result.values, latestScore);
+        int predictionConsecutiveHits = consecutiveHits;
+        boolean triggered = consecutiveHits >= 2 && sample.timeMs - lastTriggeredAt >= 1600;
+        if (triggered) {
+            consecutiveHits = 0;
+            lastTriggeredAt = sample.timeMs;
+        }
+        PredictionObserver observer = predictionObserver;
+        if (observer != null) {
+            try {
+                observer.onPrediction(new Prediction(latestScore, result, pass,
+                        predictionConsecutiveHits, triggered, sample.timeMs));
+            } catch (RuntimeException ignored) { }
+        }
+        return triggered ? new Detection(result.values, latestScore) : null;
     }
 
     public double latestScore() { return latestScore; }

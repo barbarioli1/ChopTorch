@@ -4,6 +4,19 @@ plugins {
 
 // Production is intentionally opt-in. The pretrained weights asset is mandatory in shipping mode.
 def shipping = providers.gradleProperty('shipping').map { it.toBoolean() }.getOrElse(false)
+def diagnosticsEnabled = providers.gradleProperty('diagnosticsEnabled').map { it.toBoolean() }.getOrElse(false)
+if (diagnosticsEnabled && !shipping) {
+    throw new GradleException('Remote diagnostics builds must use -Pshipping=true.')
+}
+if (diagnosticsEnabled && !file('google-services.json').isFile()) {
+    throw new GradleException('Remote diagnostics builds require the real app/google-services.json for this package.')
+}
+if (shipping && file('google-services.json').isFile()) {
+    apply plugin: 'com.google.gms.google-services'
+}
+configurations.configureEach {
+    exclude group: 'com.google.guava', module: 'listenablefuture'
+}
 def defaultVersionCode = 4
 def requestedVersionCode = providers.gradleProperty('versionCode').orNull
 def appVersionCode = requestedVersionCode == null ? defaultVersionCode : Integer.parseInt(requestedVersionCode)
@@ -78,6 +91,7 @@ android {
         versionCode appVersionCode
         versionName appVersionName
         buildConfigField 'boolean', 'ENABLE_TRAINING', shipping ? 'false' : 'true'
+        buildConfigField 'boolean', 'ENABLE_REMOTE_DIAGNOSTICS', diagnosticsEnabled ? 'true' : 'false'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
@@ -105,6 +119,11 @@ android {
 }
 
 dependencies {
+    implementation platform('com.google.firebase:firebase-bom:35.2.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+    implementation 'com.google.guava:guava:33.8.0-android'
+    implementation 'androidx.work:work-runtime:2.12.0'
     androidTestImplementation 'androidx.test:core:1.6.1'
     androidTestImplementation 'androidx.test:runner:1.6.2'
     androidTestImplementation 'androidx.test:rules:1.6.1'

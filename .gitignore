@@ -11,6 +11,9 @@ local.properties
 play-service-account*.json
 gha-creds-*.json
 test-results/
+/tests/firebase/node_modules/
+/app/google-services.json
+/firestore-debug.log
 
 # Gradle wrapper JAR is fetched on first run after verifying Gradle's official checksum.
 gradle/wrapper/gradle-wrapper.jar

@@ -41,6 +41,8 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.example.choptorch.diagnostics.DiagnosticsRecorder;
+
 import java.io.OutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -79,6 +81,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private SensorManager sensorManager;
     private Sensor accelerometer, gyroscope;
     private GestureStore store;
+    private DiagnosticsRecorder diagnostics;
     private TorchController torch;
     private Screen currentScreen = Screen.HOME;
     private boolean onTrainingPage, preparing, recording, training, resumed, sensorRegistered;
@@ -95,6 +98,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private TextView homeInstruction;
     private TextView detectionMonitoringText, settingsMonitoringText, settingsMonitoringSubtitle;
     private TextView detectionCountsText, detectionFeedbackText;
+    private TextView diagnosticsStatusText;
     private TextView flashlightTitle;
     private ImageView flashlightIcon;
     private LinearLayout flashlightCard;
@@ -122,6 +126,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         store = GestureStore.shared(this);
+        diagnostics = DiagnosticsRecorder.get(this);
         torch = new TorchController(this, on -> updateFlashlightControl());
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
@@ -158,6 +163,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        diagnostics.scheduleIfEnabled();
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             try { torch.initializeAfterPermission(); } catch (Exception ignored) { }
         }
@@ -420,6 +426,33 @@ public final class MainActivity extends Activity implements SensorEventListener 
             sectionTitle("FEEDBACK", CONFIGURATION_TEAL);
             LinearLayout feedbackCard = card();
             addVibrationFeedbackRow(feedbackCard);
+
+            if (BuildConfig.ENABLE_REMOTE_DIAGNOSTICS) {
+                sectionTitle("PRIVACY", CONFIGURATION_TEAL);
+                LinearLayout diagnosticsCard = card();
+                LinearLayout consentRow = new LinearLayout(this);
+                consentRow.setGravity(Gravity.CENTER_VERTICAL);
+                TextView consentLabel = text("Share anonymous diagnostics", 15, WHITE, true);
+                consentRow.addView(consentLabel, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+                Switch consentSwitch = new Switch(this);
+                consentSwitch.setContentDescription("Share anonymous diagnostics");
+                consentSwitch.setChecked(diagnostics.isEnabled());
+                consentSwitch.setOnCheckedChangeListener((button, enabled) -> {
+                diagnostics.setConsent(enabled);
+                    GestureDetectionService.updateDiagnosticsObserver();
+                diagnostics.refreshStatusAsync();
+                updateDiagnosticsStatus();
+                });
+                consentRow.addView(consentSwitch);
+                diagnosticsCard.addView(consentRow);
+                diagnosticsCard.addView(spacedText("Optional gesture scores and flashlight request outcomes are uploaded without raw sensor streams or camera content. Turning sharing off stops collection and clears the local queue. A write already accepted by Google may finish; email support to request deletion of uploaded records.",
+                    13, MUTED, 8));
+                diagnosticsStatusText = spacedText("", 13, MUTED, 4);
+                diagnosticsCard.addView(diagnosticsStatusText);
+                diagnosticsCard.addView(button("Request diagnostics deletion", false,
+                    () -> sendDiagnosticsDeletionRequest()));
+            }
 
         sectionTitle("ABOUT", CONFIGURATION_TEAL);
         LinearLayout aboutCard = card();
@@ -1103,6 +1136,22 @@ public final class MainActivity extends Activity implements SensorEventListener 
         if (settingsMonitoringText != null) {
             settingsMonitoringText.setText(active ? "ACTIVE" : unavailable ? "UNAVAILABLE" : "PAUSED");
             settingsMonitoringText.setTextColor(active ? MINT : unavailable ? 0xFFFFC56E : MUTED);
+        }
+        updateDiagnosticsStatus();
+    }
+
+    private void updateDiagnosticsStatus() {
+        if (diagnosticsStatusText == null || diagnostics == null) return;
+        diagnostics.refreshStatusAsync();
+        diagnosticsStatusText.setText(diagnostics.status());
+    }
+
+    private void sendDiagnosticsDeletionRequest() {
+        Intent email = new Intent(Intent.ACTION_SENDTO,
+                Uri.parse("mailto:barbarioli.1+github@gmail.com?subject=Diagnostics%20data%20deletion"));
+        try { startActivity(email); }
+        catch (ActivityNotFoundException ignored) {
+            Toast.makeText(this, "Email app unavailable. Contact barbarioli.1+github@gmail.com", Toast.LENGTH_LONG).show();
         }
     }
 

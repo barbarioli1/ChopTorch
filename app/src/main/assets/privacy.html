@@ -10,7 +10,7 @@
   <main>
     <header>
       <h1>Privacy Policy — ChopTorch</h1>
-      <p class="date">Last updated: November 11, 2026</p>
+      <p class="date">Last updated: November 13, 2026</p>
       <nav aria-label="Language">
         <a href="privacy-pt.html" lang="pt-BR">Português (Brasil)</a>
       </nav>
@@ -37,9 +37,13 @@
     <p>The app disables Android backup and device-transfer backup for its private data. You can remove locally stored app data using Android Settings &gt; Apps &gt; ChopTorch &gt; Storage &gt; Clear storage, or by uninstalling the app. Android controls the lifecycle of temporary system logs and operating-system data.</p>
     <p>Development builds distributed from the source repository may enable optional local training and sample export. Those development-only features are disabled in the production Google Play build.</p>
 
-    <h2>Data sent, sharing, and third parties</h2>
-    <p>The production app does not request the Internet permission and contains no advertising, analytics, tracking, crash-reporting, or other data-transmission SDK. It does not send sensor readings, personal information, or usage events to ChopTorch servers or share them with third parties. The app has no user accounts.</p>
-    <p>If you choose to contact support, your email app handles that action under its own privacy terms; ChopTorch itself does not make that network request.</p>
+    <h2>Optional diagnostics</h2>
+    <p>In closed-test builds that include the diagnostics option, sharing is OFF by default and starts only if you turn on <strong>Share anonymous diagnostics</strong> in Settings. Those builds use Firebase Authentication to create an anonymous account and Google Cloud Firestore to receive diagnostics. The app does not sign in or upload diagnostics while sharing is off.</p>
+    <p>When enabled, ChopTorch may upload a bounded summary of a movement attempt: the model confidence and derived 27-value feature vector, shape checks, prediction count and timing, whether the existing detector triggered, the requested flashlight state and its Android camera callback outcome, app version, device manufacturer/model, Android version, and screen/power-saving state. It may also upload a sensor-recovery or monitoring-start failure event. No raw accelerometer or gyroscope stream, camera image/video, location, contacts, advertising ID, Android ID, or hardware serial is collected by this feature.</p>
+    <p>Events are first stored in an app-private SQLite queue and uploaded in the background when a network is available. The queue is bounded to 500 events and 2 MiB. Turning sharing off stops future collection, cancels scheduled uploads, disables Firestore networking, and clears the local queue. A write already accepted by Google's SDK before you turn sharing off may still complete. Previously uploaded records are not removed by turning sharing off; request deletion by emailing <a href="mailto:barbarioli.1+github@gmail.com?subject=Diagnostics%20data%20deletion">barbarioli.1+github@gmail.com</a>. Include the approximate dates and device/app details needed to locate your anonymous records. Data is retained until deleted following a request or manual project cleanup; automatic expiry is not configured.</p>
+    <p>Google processes the anonymous authentication and Firestore data as the app's cloud service provider under Google's terms and privacy policy. Firebase project owners can inspect and manually delete records. The app has no user-facing account or automatic server-side deletion feature.</p>
+    <p>Builds without the compile-time diagnostics option do not show the sharing control and do not collect or upload these diagnostics. No advertising or analytics SDK is used.</p>
+    <p>If you choose to contact support, your email app handles that action under its own privacy terms; ChopTorch itself does not make that email network request.</p>
 
     <h2>Children and changes</h2>
     <p>ChopTorch is a general-purpose utility and is not designed specifically for children. This policy may be updated if the app's data practices change. The latest version and its update date are published on the project website.</p>

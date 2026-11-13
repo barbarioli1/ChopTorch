@@ -10,7 +10,7 @@
   <main>
     <header>
       <h1>Política de Privacidade — ChopTorch</h1>
-      <p class="date">Última atualização: 11 de novembro de 2026</p>
+      <p class="date">Última atualização: 13 de novembro de 2026</p>
       <nav aria-label="Idioma">
         <a href="privacy.html" lang="en">English</a>
       </nav>
@@ -37,9 +37,15 @@
     <p>O app desativa o backup do Android e a transferência dos dados privados para outro dispositivo. Você pode apagar dados locais em Configurações do Android &gt; Apps &gt; ChopTorch &gt; Armazenamento &gt; Limpar armazenamento, ou desinstalando o app. O Android controla o ciclo de vida de logs temporários do sistema e de outros dados do sistema operacional.</p>
     <p>Builds de desenvolvimento podem habilitar treinamento local opcional e exportação de amostras. Esses recursos ficam desativados na versão de produção do Google Play.</p>
 
-    <h2>Envio, compartilhamento e terceiros</h2>
-    <p>O app de produção não solicita permissão de Internet e não inclui SDKs de publicidade, análise, rastreamento, relatórios de falhas ou transmissão de dados. Ele não envia leituras dos sensores, informações pessoais ou eventos de uso para servidores do ChopTorch nem os compartilha com terceiros. O app não possui contas de usuário.</p>
-    <p>Se você entrar em contato com o suporte, seu aplicativo de e-mail fará essa ação conforme os próprios termos de privacidade; o ChopTorch não faz essa solicitação de rede.</p>
+    <h2>Diagnósticos opcionais</h2>
+    <p>Em versões de teste fechado que incluem a opção de diagnóstico, o compartilhamento vem DESATIVADO e só começa se você ativar <strong>Compartilhar diagnósticos anônimos</strong> em Configurações. Essas versões usam o Firebase Authentication para criar uma conta anônima e o Google Cloud Firestore para receber os diagnósticos. O app não inicia sessão nem envia diagnósticos enquanto o compartilhamento estiver desativado.</p>
+    <p>Quando ativado, o ChopTorch pode enviar um resumo limitado de uma tentativa de movimento: confiança do modelo e vetor derivado de 27 características, verificações de forma, quantidade e tempo das previsões, se o detector existente foi acionado, estado solicitado da lanterna e resultado do callback da câmera Android, versão do app, fabricante/modelo do dispositivo, versão do Android e estado da tela/economia de energia. Também pode enviar eventos de recuperação de sensor ou falha ao iniciar o monitoramento. Este recurso não coleta fluxo bruto do acelerômetro ou giroscópio, imagens/vídeos da câmera, localização, contatos, ID de publicidade, Android ID ou número de série do hardware.</p>
+    <p>Os eventos são armazenados primeiro em uma fila SQLite privada do app e enviados em segundo plano quando há rede. A fila é limitada a 500 eventos e 2 MiB. Ao desativar o compartilhamento, a coleta futura para, os envios agendados são cancelados, a rede do Firestore é desativada e a fila local é apagada. Uma gravação já aceita pelo SDK do Google antes da desativação ainda pode ser concluída. Os registros já enviados não são removidos ao desativar o compartilhamento; solicite a exclusão por e-mail para <a href="mailto:barbarioli.1+github@gmail.com?subject=Exclus%C3%A3o%20de%20dados%20de%20diagn%C3%B3stico">barbarioli.1+github@gmail.com</a>. Inclua datas aproximadas e detalhes do dispositivo/app necessários para localizar os registros anônimos. Os dados são mantidos até serem excluídos após uma solicitação ou limpeza manual do projeto; não há expiração automática configurada.</p>
+    <p>O Google processa dados de autenticação anônima e do Firestore como provedor de serviços em nuvem do app, conforme os termos e a política de privacidade do Google. Os proprietários do projeto Firebase podem consultar e excluir registros manualmente. O app não possui conta visível ao usuário nem recurso automático de exclusão no servidor.</p>
+    <p>Versões sem a opção de diagnóstico em tempo de compilação não exibem o controle de compartilhamento e não coletam nem enviam esses diagnósticos. O app não usa SDK de publicidade ou análise.</p>
+
+    <h2>Contato e compartilhamento</h2>
+    <p>Se você entrar em contato com o suporte, seu aplicativo de e-mail fará essa ação conforme os próprios termos de privacidade; o ChopTorch não faz essa solicitação de e-mail pela rede.</p>
 
     <h2>Crianças e alterações</h2>
     <p>O ChopTorch é uma ferramenta de uso geral e não foi desenvolvido especificamente para crianças. Esta política poderá ser atualizada se as práticas de dados do app mudarem. A versão mais recente e a data de atualização estarão no site do projeto.</p>

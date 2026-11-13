@@ -51,6 +51,19 @@ public final class StreamingDetectorTest {
     private static List<Long> runStream(GestureDetector detector, TinyNeuralNet model,
                                         boolean doubleChop, int repetitions, int seed,
                                         long repetitionSpacingMs, long endMs) {
+        return runStream(detector, model, doubleChop, repetitions, seed,
+                repetitionSpacingMs, endMs, null);
+    }
+
+    private static List<Long> runStream(GestureDetector detector, TinyNeuralNet model,
+                                        boolean doubleChop, int repetitions, int seed,
+                                        long repetitionSpacingMs, long endMs,
+                                        List<Long> observerTriggers) {
+        if (observerTriggers != null) {
+            detector.setPredictionObserver(prediction -> {
+                if (prediction.triggered) observerTriggers.add(prediction.timeMs);
+            });
+        }
         ArrayList<Long> triggers = new ArrayList<>();
         Random random = new Random(seed);
         for (long t = 0; t <= endMs; t += DT_MS) {
@@ -120,6 +133,26 @@ public final class StreamingDetectorTest {
         List<Long> resetTriggers = runStream(detector, model, true, 2, 505, 10_500);
         if (!triggers.equals(resetTriggers)) {
             throw new AssertionError("Reset changed deterministic detections: " + resetTriggers);
+        }
+        ArrayList<Long> observedTriggers = new ArrayList<>();
+        List<Long> observedRun = runStream(new GestureDetector(), model, true, 2,
+                505, 4000L, 10_500, observedTriggers);
+        if (!triggers.equals(observedRun) || !triggers.equals(observedTriggers)) {
+            throw new AssertionError("Observer changed detections or trigger timestamps: "
+                    + observedRun + " / " + observedTriggers);
+        }
+        TinyNeuralNet alwaysPositiveForFailure = alwaysPositiveModel();
+        List<Long> scorerBaselineTriggers = runStream(new GestureDetector(),
+                alwaysPositiveForFailure, true, 2, 707, 1560, 6500);
+        GestureDetector failureDetector = new GestureDetector();
+        failureDetector.setPredictionObserver(prediction -> {
+            throw new RuntimeException("observer failure");
+        });
+        List<Long> observerFailureTriggers = runStream(failureDetector,
+                alwaysPositiveModel(), true, 2, 707, 1560, 6500);
+        if (!scorerBaselineTriggers.equals(observerFailureTriggers)) {
+            throw new AssertionError("Observer failure changed detector behavior: "
+                    + observerFailureTriggers);
         }
         verifyConsecutiveHitReset(model);
 
