@@ -56,6 +56,7 @@ jobs:
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
           CHOPTORCH_MODEL_JSON: ${{ secrets.CHOPTORCH_MODEL_JSON }}
+          FIREBASE_GOOGLE_SERVICES_JSON: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON }}
           GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
         run: |
@@ -65,6 +66,7 @@ jobs:
           test -n "$ANDROID_UPLOAD_KEY_ALIAS" || { echo "::error::Missing ANDROID_UPLOAD_KEY_ALIAS secret"; exit 1; }
           test -n "$ANDROID_UPLOAD_KEY_PASSWORD" || { echo "::error::Missing ANDROID_UPLOAD_KEY_PASSWORD secret"; exit 1; }
           test -n "$CHOPTORCH_MODEL_JSON" || { echo "::error::Missing CHOPTORCH_MODEL_JSON repository secret"; exit 1; }
+          test -n "$FIREBASE_GOOGLE_SERVICES_JSON" || { echo "::error::Missing FIREBASE_GOOGLE_SERVICES_JSON secret"; exit 1; }
           test -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" || { echo "::error::Missing GCP_WORKLOAD_IDENTITY_PROVIDER environment variable"; exit 1; }
           test -n "$GCP_SERVICE_ACCOUNT" || { echo "::error::Missing GCP_SERVICE_ACCOUNT environment variable"; exit 1; }
 
@@ -83,6 +85,19 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$CHOPTORCH_MODEL_JSON" > app/src/main/assets/choptorch_model.json
+
+      - name: Restore Firebase Android configuration
+        env:
+          FIREBASE_GOOGLE_SERVICES_JSON: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$FIREBASE_GOOGLE_SERVICES_JSON" > app/google-services.json
+          jq --exit-status 'any(.client[]?; .client_info.android_client_info.package_name == "com.barbarioli1.choptorch")' \
+            app/google-services.json >/dev/null || {
+              echo "::error::FIREBASE_GOOGLE_SERVICES_JSON does not contain the shipping Android package."
+              exit 1
+            }
 
       - name: Authenticate to Google Play for version lookup
         id: auth-for-version-lookup
@@ -153,7 +168,7 @@ jobs:
           ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
-        run: bash ./gradlew --no-daemon --stacktrace bundleRelease -Pshipping=true -PversionCode="$VERSION_CODE"
+        run: bash ./gradlew --no-daemon --stacktrace bundleRelease -Pshipping=true -PdiagnosticsEnabled=true -PdiagnosticsConsentDefaultsOn=true -PversionCode="$VERSION_CODE"
 
       - name: Authenticate to Google Play for upload
         id: auth-for-upload
@@ -181,4 +196,4 @@ jobs:
 
       - name: Remove temporary credentials
         if: always()
-        run: rm -f "$RUNNER_TEMP/choptorch-upload-key.jks"
+        run: rm -f "$RUNNER_TEMP/choptorch-upload-key.jks" app/google-services.json app/src/main/assets/choptorch_model.json

@@ -12,13 +12,13 @@
     <header>
       <div class="brand">CHOPTORCH · PRIVACY</div>
       <h1>Privacy Policy — ChopTorch</h1>
-      <p class="lead">Last updated: November 11, 2026</p>
+      <p class="lead">Last updated: November 14, 2026</p>
       <nav aria-label="Language and project links">
         <a href="index.html">Project home</a>
         <a href="privacy-pt.html" lang="pt-BR">Português (Brasil)</a>
       </nav>
     </header>
-    <p>This policy applies to the production Google Play app <strong>ChopTorch: Shake Flashlight</strong> (package <code>com.barbarioli1.choptorch</code>), developed by Guilherme Barbarioli. Privacy and support contact: <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
+    <p>This policy applies to the Google Play app <strong>ChopTorch: Shake Flashlight</strong> (package <code>com.barbarioli1.choptorch</code>), including internal closed-test builds, developed by Guilherme Barbarioli. Privacy and support contact: <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
 
     <h2>Motion sensors and local processing</h2>
     <p>When you start gesture monitoring, ChopTorch reads accelerometer and gyroscope values to recognize the double-chop motion. It processes these readings on your device to calculate motion features and run the bundled neural-network model. This local sensor access is necessary for the feature; it is not data collection sent to a server.</p>
@@ -41,7 +41,10 @@
     <p>Development builds distributed from the source repository may enable optional local training and sample export. Those development-only features are disabled in the production Google Play build.</p>
 
     <h2>Data sent, sharing, and third parties</h2>
-    <p>The production app does not request the Internet permission and contains no advertising, analytics, tracking, crash-reporting, or other data-transmission SDK. It does not send sensor readings, personal information, or usage events to ChopTorch servers or share them with third parties. The app has no user accounts.</p>
+    <p>The standard production build does not include remote diagnostics or request the Internet permission. Internal closed-test builds may include diagnostics that use Firebase Authentication for an anonymous account and Google Cloud Firestore to receive events. In those builds, sharing is ON by default on a fresh install; a previously saved opt-out remains OFF. You can turn sharing off at any time in Settings.</p>
+    <p>When sharing is on, the app may send a bounded summary of movement attempts, including model confidence and derived movement features, detector and flashlight outcomes, event timing, app version, device manufacturer/model, Android version, and screen or power-saving state. Sensor-recovery and monitoring-start failures may also be sent. The feature does not send raw accelerometer or gyroscope streams, camera images or video, location, contacts, advertising ID, Android ID, or hardware serial number.</p>
+    <p>Events are queued locally and uploaded in the background. Turning sharing off stops future collection, cancels scheduled uploads, disables Firestore networking, and clears the local queue. A write already accepted by Google's SDK may still complete. Previously uploaded events are not deleted by opting out; request deletion by emailing <a href="mailto:barbarioli.1+github@gmail.com?subject=Diagnostics%20data%20deletion">barbarioli.1+github@gmail.com</a>. Firebase project owners can inspect and manually delete records; automatic expiry is not configured.</p>
+    <p>The app does not use advertising or analytics SDKs. Google processes anonymous authentication and Firestore data as the app's cloud service provider under Google's terms and privacy policy.</p>
     <p>If you choose to open the online policy or contact support, your browser or email app handles that action under its own privacy terms; ChopTorch itself does not make that network request.</p>
 
     <h2>Children and changes</h2>

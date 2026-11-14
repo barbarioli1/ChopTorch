@@ -12,13 +12,13 @@
     <header>
       <div class="brand">CHOPTORCH · PRIVACIDADE</div>
       <h1>Política de Privacidade — ChopTorch</h1>
-      <p class="lead">Última atualização: 11 de novembro de 2026</p>
+      <p class="lead">Última atualização: 14 de novembro de 2026</p>
       <nav aria-label="Idioma e links do projeto">
         <a href="index.html">Página do projeto</a>
         <a href="privacy.html" lang="en">English</a>
       </nav>
     </header>
-    <p>Esta política se aplica ao aplicativo de produção <strong>ChopTorch: Shake Flashlight</strong> no Google Play (pacote <code>com.barbarioli1.choptorch</code>), desenvolvido por Guilherme Barbarioli. Contato para privacidade e suporte: <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
+    <p>Esta política se aplica ao aplicativo <strong>ChopTorch: Shake Flashlight</strong> no Google Play (pacote <code>com.barbarioli1.choptorch</code>), incluindo versões de teste interno, desenvolvido por Guilherme Barbarioli. Contato para privacidade e suporte: <a href="mailto:barbarioli.1+github@gmail.com">barbarioli.1+github@gmail.com</a>.</p>
 
     <h2>Sensores de movimento e processamento local</h2>
     <p>Quando você inicia o monitoramento por gestos, o ChopTorch lê dados do acelerômetro e do giroscópio para reconhecer o movimento de corte duplo. O processamento desses dados, o cálculo das características do movimento e a execução do modelo de rede neural incluído acontecem no próprio dispositivo. Esse acesso local aos sensores é necessário para o recurso e não significa que os dados sejam enviados a um servidor.</p>
@@ -41,7 +41,10 @@
     <p>Builds de desenvolvimento distribuídos pelo repositório podem habilitar treinamento local opcional e exportação de amostras. Esses recursos exclusivos de desenvolvimento ficam desativados na versão de produção do Google Play.</p>
 
     <h2>Envio, compartilhamento e terceiros</h2>
-    <p>O app de produção não solicita a permissão de Internet e não inclui SDKs de publicidade, análise, rastreamento, relatórios de falhas ou transmissão de dados. Ele não envia leituras dos sensores, informações pessoais ou eventos de uso para servidores do ChopTorch nem os compartilha com terceiros. O app não possui contas de usuário.</p>
+    <p>A versão padrão de produção não inclui diagnósticos remotos nem solicita a permissão de Internet. Versões de teste interno podem incluir diagnósticos que usam o Firebase Authentication para criar uma conta anônima e o Google Cloud Firestore para receber eventos. Nessas versões, o compartilhamento vem ATIVADO em uma instalação nova; uma opção de desativação salva anteriormente continua DESATIVADA. Você pode desativar o compartilhamento a qualquer momento nas Configurações.</p>
+    <p>Com o compartilhamento ativado, o app pode enviar um resumo limitado de tentativas de movimento, incluindo confiança do modelo e características derivadas do movimento, resultados do detector e da lanterna, horários dos eventos, versão do app, fabricante/modelo do dispositivo, versão do Android e estado da tela ou economia de energia. Falhas de recuperação do sensor e de início do monitoramento também podem ser enviadas. O recurso não envia fluxo bruto do acelerômetro ou giroscópio, imagens ou vídeos da câmera, localização, contatos, ID de publicidade, Android ID ou número de série do hardware.</p>
+    <p>Os eventos são colocados em uma fila local e enviados em segundo plano. Ao desativar o compartilhamento, a coleta futura para, os envios agendados são cancelados, a rede do Firestore é desativada e a fila local é apagada. Uma gravação já aceita pelo SDK do Google ainda pode ser concluída. Eventos já enviados não são apagados ao desativar o compartilhamento; solicite a exclusão por e-mail para <a href="mailto:barbarioli.1+github@gmail.com?subject=Exclus%C3%A3o%20de%20dados%20de%20diagn%C3%B3stico">barbarioli.1+github@gmail.com</a>. Os proprietários do projeto Firebase podem consultar e excluir registros manualmente; não há expiração automática configurada.</p>
+    <p>O app não usa SDKs de publicidade ou análise. O Google processa dados de autenticação anônima e do Firestore como provedor de serviços em nuvem do app, conforme os termos e a política de privacidade do Google.</p>
     <p>Se você optar por abrir a política online ou entrar em contato com o suporte, o navegador ou o aplicativo de e-mail fará essa ação conforme os próprios termos de privacidade; o ChopTorch não faz essa solicitação de rede.</p>
 
     <h2>Crianças e alterações</h2>

@@ -448,7 +448,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
                 });
                 consentRow.addView(consentSwitch);
                 diagnosticsCard.addView(consentRow);
-                diagnosticsCard.addView(spacedText("Optional gesture scores and flashlight request outcomes are uploaded without raw sensor streams or camera content. Turning sharing off stops collection and clears the local queue. A write already accepted by Google may finish; email support to request deletion of uploaded records.",
+                diagnosticsCard.addView(spacedText("In this closed-test build, anonymous diagnostics are shared by default. Turn this off at any time to stop new collection and clear the local queue. No raw sensor streams or camera content are uploaded. A write already accepted by Google may finish; email support to request deletion of uploaded records.",
                     13, MUTED, 8));
                 diagnosticsStatusText = spacedText("", 13, MUTED, 4);
                 diagnosticsCard.addView(diagnosticsStatusText);
