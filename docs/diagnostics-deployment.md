@@ -2,13 +2,13 @@
 
 ## Current status
 
-Remote diagnostics remain disabled by default. A closed-test-only build option, `-PtestPhaseDefaultsOn=true`, defaults monitoring and diagnostics on when no saved choice exists, when combined with shipping and diagnostics flags; saved opt-outs remain off. The shipping app has a real, package-matched Firebase config at `app/google-services.json` (ignored by Git). The default-on test build and Android unit tests passed on November 13, 2026.
+Remote diagnostics remain compile-time disabled in ordinary builds. The Play internal-testing workflow enables diagnostics and uses `-PdiagnosticsConsentDefaultsOn=true`, so sharing starts ON for a fresh install; a previously saved opt-out remains OFF. Testers can turn sharing off in Settings at any time. Gesture monitoring remains user-started; the separate `-PtestPhaseDefaultsOn=true` option also enables test-phase monitoring behavior and is not used by the Play workflow. The shipping app has a real, package-matched Firebase config at `app/google-services.json` (ignored by Git). Default-on builds and Android unit tests passed on November 13, 2026.
 
 Firebase CLI is authenticated as `barbarioli1@gmail.com` for the approved project `chop-torch`. Firestore `(default)` is Standard Native in `us-central1`; Anonymous Auth is enabled and verified. The reviewed Firestore rules were emulator-tested and deployed. Billing is disabled, with no billing account linked. See [diagnostics-cloud-setup-report.md](diagnostics-cloud-setup-report.md).
 
 ## Remaining Setup and Verification
 
-1. Configure Play upload signing and build the closed-test release with `-Pshipping=true -PdiagnosticsEnabled=true -PtestPhaseDefaultsOn=true`. The passing local check so far is a debug APK, not a Play-signed release.
+1. Configure Play upload signing and build the closed-test release with `-Pshipping=true -PdiagnosticsEnabled=true -PdiagnosticsConsentDefaultsOn=true`. The passing local check so far is a debug APK, not a Play-signed release.
 2. Verify the Google Play app-signing SHA-256 and configure Play Integrity App Check. Keep enforcement off until valid Play-installed tester uploads are confirmed.
 3. Update the Google Play Data Safety declaration and hosted privacy policy before distribution.
 
@@ -26,13 +26,13 @@ Shipping build with diagnostics disabled:
 .\gradlew.bat :app:assembleDebug -Pshipping=true
 ```
 
-Closed-test build with monitoring and diagnostics enabled by default when no saved choice exists:
+Closed-test build with diagnostics sharing enabled by default when no saved choice exists:
 
 ```powershell
-.\gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true -PtestPhaseDefaultsOn=true
+.\gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true -PdiagnosticsConsentDefaultsOn=true
 ```
 
-The default-on closed-test debug build passed. A release build still requires upload-signing secrets configured outside the repository. The Settings control is absent when diagnostics are compiled out. In a default build consent begins OFF; in the explicit test-phase build it defaults ON when no choice is saved, and a saved opt-out remains OFF. Turning sharing off cancels scheduled uploads, disables Firestore networking, and clears the local SQLite queue. A Firestore write already accepted by Google's SDK before opt-out may still complete. Previously uploaded records require a deletion request to the privacy contact; local opt-out cannot remove server records.
+The default-on closed-test debug build passed. A release build still requires upload-signing secrets configured outside the repository. The Settings control is absent when diagnostics are compiled out. In a default build consent begins OFF; in a default-on diagnostics build it starts ON when no choice is saved, and a saved opt-out remains OFF. Gesture monitoring is still started by the user. Turning sharing off cancels scheduled uploads, disables Firestore networking, and clears the local SQLite queue. A Firestore write already accepted by Google's SDK before opt-out may still complete. Previously uploaded records require a deletion request to the privacy contact; local opt-out cannot remove server records.
 
 ## Data inspection and cleanup
 

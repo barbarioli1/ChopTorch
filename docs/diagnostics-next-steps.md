@@ -1,6 +1,6 @@
 # Step-by-Step: Enable Closed-Test Diagnostics
 
-This guide records the approved setup for project `chop-torch` as of November 13, 2026. Firestore is in `us-central1`, Anonymous Auth is enabled, and the shipping Android app is registered. Billing remains disabled with no billing account linked. The diagnostics feature stays OFF unless both the shipping and diagnostics Gradle properties are set, and user consent is still OFF by default.
+This guide records the approved setup for project `chop-torch` as of November 14, 2026. Firestore is in `us-central1`, Anonymous Auth is enabled, and the shipping Android app is registered. Billing remains disabled with no billing account linked. Remote diagnostics are compiled into the internal-test build; sharing starts ON for fresh installs and can be turned off in Settings. A previously saved opt-out remains OFF.
 
 ## 1. Verify the Firebase project
 
@@ -61,6 +61,8 @@ The database and Anonymous Auth were created/enabled after owner approval. Fires
 3. Never put service-account credentials in the app or repository.
 5. The dev package `com.barbarioli1.choptorch.devclassic` is separate and needs its own registered Android app/config if you intend to run remote diagnostics in dev builds. It is not required for the shipping closed-test build.
 
+The Play internal-testing workflow restores this file from the GitHub Actions secret `FIREBASE_GOOGLE_SERVICES_JSON` and verifies that it contains the shipping package. Configure that secret with the complete contents of the verified JSON in the repository or `play-internal` environment before dispatching the workflow. The workflow builds with remote diagnostics enabled and sharing defaults ON for fresh installs; testers can opt out using **Share anonymous diagnostics** in Settings. A previously saved opt-out remains OFF.
+
 ## 6. Deploy the reviewed Firestore rules
 
 The reviewed rules passed the local emulator tests and were deployed to the approved project on November 13, 2026. For a future rules update, rerun the emulator tests first, then deploy only the rules:
@@ -85,8 +87,11 @@ From the repository root:
 # Closed-test compile/package; requires real matching google-services.json
 .\gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true
 
-# Closed-test group build; defaults ON when no saved opt-out exists
+# Closed-test group build; defaults sharing ON and exercises test-phase monitoring defaults
 .\gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true -PtestPhaseDefaultsOn=true
+
+# Default-on sharing without automatically starting gesture monitoring
+.\gradlew.bat :app:assembleDebug -Pshipping=true -PdiagnosticsEnabled=true -PdiagnosticsConsentDefaultsOn=true
 ```
 
 The shipping diagnostics-enabled debug APK, Android unit tests, and instrumentation-test compilation passed on November 13, 2026. The build verifies an APK, not a Play-signed release. For a release artifact, configure the existing upload-signing environment variables (`ANDROID_UPLOAD_KEYSTORE_PATH`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`, `ANDROID_UPLOAD_KEY_PASSWORD`) outside the repository and run:
@@ -95,7 +100,7 @@ The shipping diagnostics-enabled debug APK, Android unit tests, and instrumentat
 .\gradlew.bat :app:assembleRelease -Pshipping=true -PdiagnosticsEnabled=true
 ```
 
-For a signed closed-test release that defaults monitoring and diagnostics ON when no saved choice exists, add `-PtestPhaseDefaultsOn=true`. This test-only option requires both shipping mode and remote diagnostics; a previously saved opt-out remains OFF.
+For a signed closed-test release that defaults only diagnostics sharing ON when no saved choice exists, add `-PdiagnosticsConsentDefaultsOn=true`. This option requires shipping mode and remote diagnostics; a previously saved opt-out remains OFF and gesture monitoring remains user-started. `-PtestPhaseDefaultsOn=true` is a separate test-only option that also enables test-phase monitoring behavior.
 
 Never paste signing secrets into chat, source code, shell history, or logs. Do not change the existing app ID or version code.
 
@@ -110,12 +115,11 @@ These steps require Play Console access and owner review. Do not claim App Check
 
 ## 9. Test on a real closed-test install
 
-1. Install the uploaded, Play-distributed closed-test build on a supported device. Confirm Settings shows “Share anonymous diagnostics” and it starts OFF.
-2. With consent OFF, use the app and confirm no diagnostic record is uploaded and no anonymous sign-in is initiated by diagnostics.
-3. Turn sharing ON, start gesture monitoring, and exercise a small number of gestures with Wi-Fi connected. Check the UI status and Firebase Console path `diagnosticEvents/{anonymousUid}/events/{eventId}`.
+1. Install the uploaded, Play-distributed internal-test build on a supported device with no previous saved choice. Confirm Settings shows “Share anonymous diagnostics” and it starts ON. Gesture monitoring itself remains user-started.
+2. With sharing ON, start gesture monitoring and exercise a small number of gestures with Wi-Fi connected. Check the UI status and Firebase Console path `diagnosticEvents/{anonymousUid}/events/{eventId}`.
 4. Verify the allowed fields, one stable event ID per attempt, and outcomes such as `confirmed_on`, `api_error`, or `confirmation_timeout`. A timeout is inconclusive; a callback confirms Android camera torch state, not emitted light.
 5. Repeat with airplane mode, then reconnect. Confirm queued records remain and upload later.
-6. Turn sharing OFF. Verify the local queue is cleared and future events stop. A Firestore write already accepted by Google's SDK may still complete; opt-out cannot recall it.
+6. Turn sharing OFF. Verify the local queue is cleared and future events stop. A Firestore write already accepted by Google's SDK may still complete; opt-out cannot recall it. Confirm the OFF choice remains after restarting the app.
 7. Check manual flashlight control, vibration, screen-off monitoring, and battery use. Do not infer detection failure from movements below the 0.50 diagnostics logging threshold.
 
 No Android device is currently attached to this workstation, so these checks remain to be run.

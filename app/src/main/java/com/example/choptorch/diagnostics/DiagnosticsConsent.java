@@ -20,14 +20,14 @@ public final class DiagnosticsConsent {
 
     public synchronized boolean isEnabled() {
         return BuildConfig.ENABLE_REMOTE_DIAGNOSTICS
-            && preferences.getBoolean(KEY_ENABLED, BuildConfig.TEST_PHASE_DEFAULTS_ON);
+            && preferences.getBoolean(KEY_ENABLED, BuildConfig.DIAGNOSTICS_CONSENT_DEFAULTS_ON);
     }
 
     public synchronized long generation() { return generation; }
 
     public synchronized long setEnabled(boolean enabled) {
         if (!BuildConfig.ENABLE_REMOTE_DIAGNOSTICS) enabled = false;
-        boolean previous = preferences.getBoolean(KEY_ENABLED, BuildConfig.TEST_PHASE_DEFAULTS_ON);
+        boolean previous = preferences.getBoolean(KEY_ENABLED, BuildConfig.DIAGNOSTICS_CONSENT_DEFAULTS_ON);
         if (previous != enabled || !enabled) generation++;
         preferences.edit().putBoolean(KEY_ENABLED, enabled).putLong(KEY_GENERATION, generation).apply();
         return generation;
